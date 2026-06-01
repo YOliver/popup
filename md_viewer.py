@@ -232,7 +232,13 @@ class MarkdownViewer(QMainWindow):
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
         _t_render = time.perf_counter()
-        self.web_view.setHtml(self.wrap_html(html_body))
+
+        # 保存滚动位置，加载完成后恢复
+        self._pending_html = self.wrap_html(html_body)
+        self.web_view.page().runJavaScript(
+            "JSON.stringify({x: window.scrollX, y: window.scrollY})",
+            self._set_html_and_restore_scroll
+        )
 
         # 更新状态栏字数统计
         char_count = len(content)
@@ -245,6 +251,23 @@ class MarkdownViewer(QMainWindow):
                      (_t_render - _t_md) * 1000,
                      (time.perf_counter() - _t_render) * 1000,
                      (time.perf_counter() - _t) * 1000)
+
+    def _set_html_and_restore_scroll(self, scroll_pos_json):
+        """设置 HTML 内容并在加载完成后恢复滚动位置"""
+        try:
+            import json
+            pos = json.loads(scroll_pos_json) if scroll_pos_json else {"x": 0, "y": 0}
+        except Exception:
+            pos = {"x": 0, "y": 0}
+
+        def _restore(ok):
+            self.web_view.loadFinished.disconnect(_restore)
+            self.web_view.page().runJavaScript(
+                f"window.scrollTo({pos['x']}, {pos['y']})"
+            )
+
+        self.web_view.loadFinished.connect(_restore)
+        self.web_view.setHtml(self._pending_html)
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
