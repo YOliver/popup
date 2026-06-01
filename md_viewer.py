@@ -11,6 +11,7 @@ import os
 import time
 import logging
 from logging.handlers import RotatingFileHandler
+import markdown
 from version import VERSION
 
 _startup_time = time.perf_counter()
@@ -38,11 +39,11 @@ logger.debug("Logging init: +%.0fms", (time.perf_counter() - _startup_time) * 10
 
 _t = time.perf_counter()
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QFileDialog, QLabel
+    QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser
 )
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
-logger.debug("Import PySide6 (no WebEngine): +%.0fms (%.0fms total)",
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer
+logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
              (time.perf_counter() - _startup_time) * 1000)
 
@@ -51,8 +52,6 @@ class MarkdownViewer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.file_path = None
-        self.web_view = None
-        self.pending_file = None
         self.watcher = QFileSystemWatcher()
         self.watcher.fileChanged.connect(self.on_file_changed)
 
@@ -83,11 +82,19 @@ class MarkdownViewer(QMainWindow):
         # 启用拖拽
         self.setAcceptDrops(True)
 
-        # 先显示加载提示，延迟初始化 WebEngine
-        self.loading_label = QLabel("Loading...")
-        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading_label.setStyleSheet("font-size: 18px; color: #888;")
-        self.setCentralWidget(self.loading_label)
+        # QTextBrowser 作为渲染控件（无需 Chromium，即时创建）
+        self.text_browser = QTextBrowser()
+        self.text_browser.setOpenExternalLinks(True)
+        self.text_browser.setStyleSheet("""
+            QTextBrowser {
+                background: #fff;
+                border: none;
+                font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+                font-size: 14px;
+                padding: 20px;
+            }
+        """)
+        self.setCentralWidget(self.text_browser)
 
         # 状态栏 - 字数统计
         self.word_count_label = QLabel("")
@@ -128,69 +135,20 @@ class MarkdownViewer(QMainWindow):
         open_log_action.triggered.connect(self.open_log_dir)
         log_menu.addAction(open_log_action)
 
-        # 如果命令行传入了文件路径，记录待打开文件
-        if len(sys.argv) > 1:
-            path = sys.argv[1]
-            if os.path.isfile(path):
-                self.pending_file = path
-
         logger.debug("init_ui: %.0fms (%.0fms total)",
                      (time.perf_counter() - _t) * 1000,
                      (time.perf_counter() - _startup_time) * 1000)
 
-        # 延迟初始化 WebEngine（让窗口先显示出来）
-        QTimer.singleShot(0, self.init_web_engine)
+        # 如果命令行传入了文件路径，直接打开
+        if len(sys.argv) > 1:
+            path = sys.argv[1]
+            if os.path.isfile(path):
+                self.load_file(path)
 
-    def init_web_engine(self):
-        """延迟初始化 WebEngineView，避免阻塞窗口显示"""
-        _t = time.perf_counter()
-
-        _t_import = time.perf_counter()
-        from PySide6.QtWebEngineWidgets import QWebEngineView
-        logger.debug("  import QWebEngineView: %.0fms", (time.perf_counter() - _t_import) * 1000)
-
-        _t_import = time.perf_counter()
-        import markdown  # noqa: F811
-        logger.debug("  import markdown: %.0fms", (time.perf_counter() - _t_import) * 1000)
-
-        _t_create = time.perf_counter()
-        self.web_view = QWebEngineView()
-        logger.debug("  create QWebEngineView: %.0fms", (time.perf_counter() - _t_create) * 1000)
-
-        self.web_view.setAcceptDrops(False)
-        self.setCentralWidget(self.web_view)
-
-        # 安装拖拽事件过滤器
-        self._install_drag_filters()
-
-        # 先用空页面预热 Chromium，预热完成后再加载实际内容
-        self.web_view.loadFinished.connect(self._on_preheat_done)
-        self.web_view.setHtml("<html><body></body></html>")
-
-        logger.info("WebEngine ready: %.0fms (%.0fms since startup)",
-                    (time.perf_counter() - _t) * 1000,
-                    (time.perf_counter() - _startup_time) * 1000)
-
-    def _on_preheat_done(self, ok):
-        """Chromium 预热完成后加载实际内容"""
-        self.web_view.loadFinished.disconnect(self._on_preheat_done)
-        logger.debug("WebEngine preheat done: %.0fms since startup",
-                     (time.perf_counter() - _startup_time) * 1000)
-        if self.pending_file:
-            self.load_file(self.pending_file)
-            self.pending_file = None
-        else:
-            self.web_view.setHtml(self.wrap_html(
+        if not self.file_path:
+            self.text_browser.setHtml(self.wrap_html(
                 "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>"
             ))
-
-    def _install_drag_filters(self):
-        """对 WebEngineView 内部子控件安装拖拽事件过滤器"""
-        from PySide6.QtWidgets import QWidget
-        if self.web_view:
-            for child in self.web_view.findChildren(QWidget):
-                child.setAcceptDrops(False)
-                child.installEventFilter(self)
 
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -201,11 +159,6 @@ class MarkdownViewer(QMainWindow):
             self.load_file(path)
 
     def load_file(self, path):
-        # 如果 WebEngine 尚未初始化，先记录待打开文件
-        if not self.web_view:
-            self.pending_file = path
-            return
-
         # 移除旧的监听
         if self.file_path and self.file_path in self.watcher.files():
             self.watcher.removePath(self.file_path)
@@ -219,7 +172,7 @@ class MarkdownViewer(QMainWindow):
         logger.info("Opened file: %s", self.file_path)
 
     def reload_file(self):
-        if not self.file_path or not os.path.isfile(self.file_path) or not self.web_view:
+        if not self.file_path or not os.path.isfile(self.file_path):
             return
 
         _t = time.perf_counter()
@@ -228,23 +181,24 @@ class MarkdownViewer(QMainWindow):
                 content = f.read()
         except Exception as e:
             logger.error("Failed to read file: %s", e)
-            self.web_view.setHtml(self.wrap_html(f"<p style='color:red;'>读取文件失败: {e}</p>"))
+            self.text_browser.setHtml(self.wrap_html(f"<p style='color:red;'>读取文件失败: {e}</p>"))
             return
 
         _t_md = time.perf_counter()
-        import markdown
         html_body = markdown.markdown(
             content,
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
-        _t_render = time.perf_counter()
 
-        # 保存滚动位置，加载完成后恢复
-        self._pending_html = self.wrap_html(html_body)
-        self.web_view.page().runJavaScript(
-            "JSON.stringify({x: window.scrollX, y: window.scrollY})",
-            self._set_html_and_restore_scroll
-        )
+        # 保存滚动位置
+        scrollbar = self.text_browser.verticalScrollBar()
+        scroll_pos = scrollbar.value()
+
+        _t_render = time.perf_counter()
+        self.text_browser.setHtml(self.wrap_html(html_body))
+
+        # 恢复滚动位置
+        scrollbar.setValue(scroll_pos)
 
         # 更新状态栏字数统计
         char_count = len(content)
@@ -257,23 +211,6 @@ class MarkdownViewer(QMainWindow):
                      (_t_render - _t_md) * 1000,
                      (time.perf_counter() - _t_render) * 1000,
                      (time.perf_counter() - _t) * 1000)
-
-    def _set_html_and_restore_scroll(self, scroll_pos_json):
-        """设置 HTML 内容并在加载完成后恢复滚动位置"""
-        try:
-            import json
-            pos = json.loads(scroll_pos_json) if scroll_pos_json else {"x": 0, "y": 0}
-        except Exception:
-            pos = {"x": 0, "y": 0}
-
-        def _restore(ok):
-            self.web_view.loadFinished.disconnect(_restore)
-            self.web_view.page().runJavaScript(
-                f"window.scrollTo({pos['x']}, {pos['y']})"
-            )
-
-        self.web_view.loadFinished.connect(_restore)
-        self.web_view.setHtml(self._pending_html)
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
@@ -289,29 +226,6 @@ class MarkdownViewer(QMainWindow):
             if path not in self.watcher.files():
                 self.watcher.addPath(path)
             self.reload_file()
-
-    def showEvent(self, event):
-        """窗口显示后，重新安装拖拽过滤器"""
-        super().showEvent(event)
-        self._install_drag_filters()
-
-    def eventFilter(self, obj, event):
-        """拦截子控件的拖拽事件，转发到主窗口处理"""
-        if event.type() == QEvent.Type.DragEnter:
-            if event.mimeData().hasUrls():
-                event.acceptProposedAction()
-                return True
-        elif event.type() == QEvent.Type.Drop:
-            urls = event.mimeData().urls()
-            if urls:
-                path = urls[0].toLocalFile()
-                if os.path.isfile(path):
-                    self.load_file(path)
-            return True
-        elif event.type() == QEvent.Type.DragMove:
-            event.acceptProposedAction()
-            return True
-        return super().eventFilter(obj, event)
 
     def dragEnterEvent(self, event):
         """拖拽进入窗口时判断是否接受"""
@@ -347,11 +261,7 @@ class MarkdownViewer(QMainWindow):
 <meta charset="utf-8">
 <style>
 body {{
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     line-height: 1.6;
-    padding: 20px;
-    max-width: 900px;
-    margin: 0 auto;
     color: #333;
     background: #fff;
 }}
@@ -363,18 +273,12 @@ h1, h2, h3, h4, h5, h6 {{
 code {{
     background: #f4f4f4;
     padding: 2px 6px;
-    border-radius: 3px;
+    font-family: Consolas, "Courier New", monospace;
     font-size: 0.9em;
 }}
 pre {{
     background: #f4f4f4;
     padding: 12px;
-    border-radius: 6px;
-    overflow-x: auto;
-}}
-pre code {{
-    background: none;
-    padding: 0;
 }}
 blockquote {{
     border-left: 4px solid #ddd;
@@ -394,9 +298,6 @@ th, td {{
 }}
 th {{
     background: #f4f4f4;
-}}
-img {{
-    max-width: 100%;
 }}
 a {{
     color: #0366d6;
