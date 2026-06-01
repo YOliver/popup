@@ -8,12 +8,43 @@ Markdown 实时预览工具
 
 import sys
 import os
+import time
+import logging
+from logging.handlers import RotatingFileHandler
+from version import VERSION
+
+_startup_time = time.perf_counter()
+
+
+def setup_logging():
+    log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "MdViewer")
+    os.makedirs(log_dir, exist_ok=True)
+    handler = RotatingFileHandler(
+        os.path.join(log_dir, "mdviewer.log"),
+        maxBytes=1_000_000, backupCount=3, encoding="utf-8"
+    )
+    handler.setFormatter(logging.Formatter(
+        "%(asctime)s [%(levelname)s] %(message)s"
+    ))
+    logger = logging.getLogger("MdViewer")
+    logger.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    return logger
+
+
+logger = setup_logging()
+logger.info("=== MdViewer v%s starting ===", VERSION)
+logger.debug("Logging init: +%.0fms", (time.perf_counter() - _startup_time) * 1000)
+
+_t = time.perf_counter()
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QLabel
 )
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
-from version import VERSION
+logger.debug("Import PySide6 (no WebEngine): +%.0fms (%.0fms total)",
+             (time.perf_counter() - _t) * 1000,
+             (time.perf_counter() - _startup_time) * 1000)
 
 
 class MarkdownViewer(QMainWindow):
@@ -34,6 +65,11 @@ class MarkdownViewer(QMainWindow):
         self.init_ui()
 
     def init_ui(self):
+        _t = time.perf_counter()
+
+        # 窗口置顶（先设置 flags 再设置其他属性，避免 show() 时重建窗口）
+        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
+
         self.setWindowTitle(f"Markdown Viewer v{VERSION}")
         self.setGeometry(100, 100, 800, 600)
 
@@ -46,9 +82,6 @@ class MarkdownViewer(QMainWindow):
 
         # 启用拖拽
         self.setAcceptDrops(True)
-
-        # 窗口置顶
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         # 先显示加载提示，延迟初始化 WebEngine
         self.loading_label = QLabel("Loading...")
@@ -95,22 +128,48 @@ class MarkdownViewer(QMainWindow):
             if os.path.isfile(path):
                 self.pending_file = path
 
+        logger.debug("init_ui: %.0fms (%.0fms total)",
+                     (time.perf_counter() - _t) * 1000,
+                     (time.perf_counter() - _startup_time) * 1000)
+
         # 延迟初始化 WebEngine（让窗口先显示出来）
         QTimer.singleShot(0, self.init_web_engine)
 
     def init_web_engine(self):
         """延迟初始化 WebEngineView，避免阻塞窗口显示"""
-        from PySide6.QtWebEngineWidgets import QWebEngineView
-        import markdown  # noqa: F811
+        _t = time.perf_counter()
 
+        _t_import = time.perf_counter()
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        logger.debug("  import QWebEngineView: %.0fms", (time.perf_counter() - _t_import) * 1000)
+
+        _t_import = time.perf_counter()
+        import markdown  # noqa: F811
+        logger.debug("  import markdown: %.0fms", (time.perf_counter() - _t_import) * 1000)
+
+        _t_create = time.perf_counter()
         self.web_view = QWebEngineView()
+        logger.debug("  create QWebEngineView: %.0fms", (time.perf_counter() - _t_create) * 1000)
+
         self.web_view.setAcceptDrops(False)
         self.setCentralWidget(self.web_view)
 
         # 安装拖拽事件过滤器
         self._install_drag_filters()
 
-        # 打开待加载的文件或显示欢迎页
+        # 先用空页面预热 Chromium，预热完成后再加载实际内容
+        self.web_view.loadFinished.connect(self._on_preheat_done)
+        self.web_view.setHtml("<html><body></body></html>")
+
+        logger.info("WebEngine ready: %.0fms (%.0fms since startup)",
+                    (time.perf_counter() - _t) * 1000,
+                    (time.perf_counter() - _startup_time) * 1000)
+
+    def _on_preheat_done(self, ok):
+        """Chromium 预热完成后加载实际内容"""
+        self.web_view.loadFinished.disconnect(self._on_preheat_done)
+        logger.debug("WebEngine preheat done: %.0fms since startup",
+                     (time.perf_counter() - _startup_time) * 1000)
         if self.pending_file:
             self.load_file(self.pending_file)
             self.pending_file = None
@@ -151,23 +210,28 @@ class MarkdownViewer(QMainWindow):
         # 添加文件监听
         self.watcher.addPath(self.file_path)
         self.reload_file()
+        logger.info("Opened file: %s", self.file_path)
 
     def reload_file(self):
         if not self.file_path or not os.path.isfile(self.file_path) or not self.web_view:
             return
 
+        _t = time.perf_counter()
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 content = f.read()
         except Exception as e:
+            logger.error("Failed to read file: %s", e)
             self.web_view.setHtml(self.wrap_html(f"<p style='color:red;'>读取文件失败: {e}</p>"))
             return
 
+        _t_md = time.perf_counter()
         import markdown
         html_body = markdown.markdown(
             content,
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
+        _t_render = time.perf_counter()
         self.web_view.setHtml(self.wrap_html(html_body))
 
         # 更新状态栏字数统计
@@ -176,12 +240,19 @@ class MarkdownViewer(QMainWindow):
         line_count = content.count("\n") + 1
         self.word_count_label.setText(f"  {char_no_space} chars | {char_count} chars (with spaces) | {line_count} lines  ")
 
+        logger.debug("reload_file: read=%.0fms, markdown=%.0fms, setHtml=%.0fms, total=%.0fms",
+                     (_t_md - _t) * 1000,
+                     (_t_render - _t_md) * 1000,
+                     (time.perf_counter() - _t_render) * 1000,
+                     (time.perf_counter() - _t) * 1000)
+
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
         if not os.path.isfile(path):
             QTimer.singleShot(500, lambda: self.re_watch(path))
         else:
             self.refresh_timer.start()
+        logger.debug("File changed: %s", path)
 
     def re_watch(self, path):
         """重新添加文件监听（处理编辑器删除-重建的情况）"""
@@ -302,9 +373,19 @@ a {{
 
 
 def main():
+    _t = time.perf_counter()
     app = QApplication(sys.argv)
+    logger.debug("QApplication created: %.0fms (%.0fms total)",
+                 (time.perf_counter() - _t) * 1000,
+                 (time.perf_counter() - _startup_time) * 1000)
+
+    _t = time.perf_counter()
     viewer = MarkdownViewer()
     viewer.show()
+    logger.debug("Window shown: %.0fms (%.0fms total)",
+                 (time.perf_counter() - _t) * 1000,
+                 (time.perf_counter() - _startup_time) * 1000)
+
     sys.exit(app.exec())
 
 
