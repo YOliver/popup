@@ -56,6 +56,10 @@ class MarkdownViewer(QMainWindow):
         self.loading_label.setStyleSheet("font-size: 18px; color: #888;")
         self.setCentralWidget(self.loading_label)
 
+        # 状态栏 - 字数统计
+        self.word_count_label = QLabel("")
+        self.statusBar().addPermanentWidget(self.word_count_label)
+
         # 菜单栏
         menubar = self.menuBar()
         file_menu = menubar.addMenu("文件")
@@ -165,6 +169,12 @@ class MarkdownViewer(QMainWindow):
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
         self.web_view.setHtml(self.wrap_html(html_body))
+
+        # 更新状态栏字数统计
+        char_count = len(content)
+        char_no_space = len(content.replace(" ", "").replace("\n", "").replace("\r", "").replace("\t", ""))
+        line_count = content.count("\n") + 1
+        self.word_count_label.setText(f"  {char_no_space} chars | {char_count} chars (with spaces) | {line_count} lines  ")
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
