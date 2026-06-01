@@ -1,5 +1,7 @@
 # Markdown 实时预览工具 (MdViewer)
 
+> 当前版本：v1.1.0
+
 一个轻量级的 Markdown 文件实时预览桌面应用，窗口始终置顶，适合写作时随时查看渲染效果。
 
 ## 功能
@@ -10,18 +12,20 @@
 - 窗口大小可调，菜单提供多种预设分辨率
 - 支持拖拽文件到窗口中打开
 - 支持命令行参数直接打开文件
+- 延迟加载 WebEngine，启动速度优化
 
 ## 使用方式
 
 ### 直接运行（需要 Python 环境）
 
 ```bash
-# 双击启动
 start.bat
-
-# 或指定文件
 start.bat readme.md
 ```
+
+### 使用安装包
+
+运行 `installer/MdViewer_Setup.exe` 安装，支持开始菜单和桌面快捷方式。
 
 ### 使用打包后的 exe
 
@@ -46,7 +50,9 @@ start.bat readme.md
 release.bat
 ```
 
-输出：`dist/MdViewer.exe`
+输出：
+- `dist/MdViewer.exe` — 单文件可执行程序
+- `installer/MdViewer_Setup.exe` — Windows 安装包
 
 ## 依赖
 

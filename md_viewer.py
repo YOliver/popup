@@ -9,12 +9,10 @@ Markdown 实时预览工具
 import sys
 import os
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QFileDialog
+    QApplication, QMainWindow, QFileDialog, QLabel
 )
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
-import markdown
 from version import VERSION
 
 
@@ -22,6 +20,8 @@ class MarkdownViewer(QMainWindow):
     def __init__(self):
         super().__init__()
         self.file_path = None
+        self.web_view = None
+        self.pending_file = None
         self.watcher = QFileSystemWatcher()
         self.watcher.fileChanged.connect(self.on_file_changed)
 
@@ -47,13 +47,14 @@ class MarkdownViewer(QMainWindow):
         # 启用拖拽
         self.setAcceptDrops(True)
 
-        # 窗口置顶（会重建窗口，图标需在此之前设置）
+        # 窗口置顶
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
-        # Web 视图用于渲染 HTML
-        self.web_view = QWebEngineView()
-        self.web_view.setAcceptDrops(False)
-        self.setCentralWidget(self.web_view)
+        # 先显示加载提示，延迟初始化 WebEngine
+        self.loading_label = QLabel("Loading...")
+        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.loading_label.setStyleSheet("font-size: 18px; color: #888;")
+        self.setCentralWidget(self.loading_label)
 
         # 菜单栏
         menubar = self.menuBar()
@@ -84,14 +85,43 @@ class MarkdownViewer(QMainWindow):
             action.triggered.connect(lambda checked, width=w, height=h: self.set_window_size(width, height))
             window_menu.addAction(action)
 
-        # 如果命令行传入了文件路径，直接打开
+        # 如果命令行传入了文件路径，记录待打开文件
         if len(sys.argv) > 1:
             path = sys.argv[1]
             if os.path.isfile(path):
-                self.load_file(path)
+                self.pending_file = path
 
-        if not self.file_path:
-            self.web_view.setHtml(self.wrap_html("<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件</p>"))
+        # 延迟初始化 WebEngine（让窗口先显示出来）
+        QTimer.singleShot(0, self.init_web_engine)
+
+    def init_web_engine(self):
+        """延迟初始化 WebEngineView，避免阻塞窗口显示"""
+        from PySide6.QtWebEngineWidgets import QWebEngineView
+        import markdown  # noqa: F811
+
+        self.web_view = QWebEngineView()
+        self.web_view.setAcceptDrops(False)
+        self.setCentralWidget(self.web_view)
+
+        # 安装拖拽事件过滤器
+        self._install_drag_filters()
+
+        # 打开待加载的文件或显示欢迎页
+        if self.pending_file:
+            self.load_file(self.pending_file)
+            self.pending_file = None
+        else:
+            self.web_view.setHtml(self.wrap_html(
+                "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>"
+            ))
+
+    def _install_drag_filters(self):
+        """对 WebEngineView 内部子控件安装拖拽事件过滤器"""
+        from PySide6.QtWidgets import QWidget
+        if self.web_view:
+            for child in self.web_view.findChildren(QWidget):
+                child.setAcceptDrops(False)
+                child.installEventFilter(self)
 
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -102,6 +132,11 @@ class MarkdownViewer(QMainWindow):
             self.load_file(path)
 
     def load_file(self, path):
+        # 如果 WebEngine 尚未初始化，先记录待打开文件
+        if not self.web_view:
+            self.pending_file = path
+            return
+
         # 移除旧的监听
         if self.file_path and self.file_path in self.watcher.files():
             self.watcher.removePath(self.file_path)
@@ -114,7 +149,7 @@ class MarkdownViewer(QMainWindow):
         self.reload_file()
 
     def reload_file(self):
-        if not self.file_path or not os.path.isfile(self.file_path):
+        if not self.file_path or not os.path.isfile(self.file_path) or not self.web_view:
             return
 
         try:
@@ -124,7 +159,7 @@ class MarkdownViewer(QMainWindow):
             self.web_view.setHtml(self.wrap_html(f"<p style='color:red;'>读取文件失败: {e}</p>"))
             return
 
-        # 渲染 Markdown
+        import markdown
         html_body = markdown.markdown(
             content,
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
@@ -133,7 +168,6 @@ class MarkdownViewer(QMainWindow):
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
-        # 某些编辑器保存时会先删除再创建文件，需要重新添加监听
         if not os.path.isfile(path):
             QTimer.singleShot(500, lambda: self.re_watch(path))
         else:
@@ -147,13 +181,9 @@ class MarkdownViewer(QMainWindow):
             self.reload_file()
 
     def showEvent(self, event):
-        """窗口显示后，对 WebEngineView 内部子控件安装事件过滤器"""
+        """窗口显示后，重新安装拖拽过滤器"""
         super().showEvent(event)
-        # QWebEngineView 内部的渲染 widget 会拦截拖拽，需要过滤
-        from PySide6.QtWidgets import QWidget
-        for child in self.web_view.findChildren(QWidget):
-            child.setAcceptDrops(False)
-            child.installEventFilter(self)
+        self._install_drag_filters()
 
     def eventFilter(self, obj, event):
         """拦截子控件的拖拽事件，转发到主窗口处理"""
