@@ -11,7 +11,7 @@ import os
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog
 )
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QIcon
 from PySide6.QtWebEngineWidgets import QWebEngineView
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
 import markdown
@@ -37,10 +37,17 @@ class MarkdownViewer(QMainWindow):
         self.setWindowTitle(f"Markdown Viewer v{VERSION}")
         self.setGeometry(100, 100, 800, 600)
 
+        # 设置应用和窗口图标
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
+        if os.path.isfile(icon_path):
+            icon = QIcon(icon_path)
+            QApplication.instance().setWindowIcon(icon)
+            self.setWindowIcon(icon)
+
         # 启用拖拽
         self.setAcceptDrops(True)
 
-        # 窗口置顶
+        # 窗口置顶（会重建窗口，图标需在此之前设置）
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         # Web 视图用于渲染 HTML
