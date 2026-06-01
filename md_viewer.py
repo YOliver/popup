@@ -122,6 +122,12 @@ class MarkdownViewer(QMainWindow):
             action.triggered.connect(lambda checked, width=w, height=h: self.set_window_size(width, height))
             window_menu.addAction(action)
 
+        # 日志菜单
+        log_menu = menubar.addMenu("日志")
+        open_log_action = QAction("打开日志目录", self)
+        open_log_action.triggered.connect(self.open_log_dir)
+        log_menu.addAction(open_log_action)
+
         # 如果命令行传入了文件路径，记录待打开文件
         if len(sys.argv) > 1:
             path = sys.argv[1]
@@ -319,6 +325,14 @@ class MarkdownViewer(QMainWindow):
             path = urls[0].toLocalFile()
             if os.path.isfile(path):
                 self.load_file(path)
+
+    def open_log_dir(self):
+        """打开日志存储目录"""
+        log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "MdViewer")
+        if os.path.isdir(log_dir):
+            os.startfile(log_dir)
+        else:
+            logger.warning("Log directory not found: %s", log_dir)
 
     def set_window_size(self, width, height):
         """设置窗口大小"""
