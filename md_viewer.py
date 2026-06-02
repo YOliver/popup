@@ -87,19 +87,36 @@ class MarkdownViewer(QMainWindow):
         # 目录边栏
         self.toc_tree = QTreeWidget()
         self.toc_tree.setHeaderLabel("目录")
+        self.toc_tree.setIndentation(8)  # 减小层级缩进
+        self.toc_tree.setRootIsDecorated(False)  # 不显示展开/折叠三角
         self.toc_tree.setStyleSheet("""
             QTreeWidget {
                 background: #f7f7f7;
                 border: none;
                 font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-                font-size: 13px;
-                padding: 8px;
+                font-size: 12px;
+                padding: 4px 2px;
             }
             QTreeWidget::item {
-                padding: 3px 4px;
+                padding: 2px 2px;
+                border: none;
+                color: #333;
             }
             QTreeWidget::item:hover {
                 background: #e8e8e8;
+                color: #333;
+            }
+            QTreeWidget::item:selected {
+                background: #d0e4ff;
+                color: #000;
+            }
+            QTreeWidget::item:selected:active {
+                background: #d0e4ff;
+                color: #000;
+            }
+            QTreeWidget::item:selected:!active {
+                background: #d0e4ff;
+                color: #000;
             }
         """)
         self.toc_tree.itemClicked.connect(self.on_toc_clicked)
@@ -123,7 +140,7 @@ class MarkdownViewer(QMainWindow):
         self.splitter.addWidget(self.text_browser)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([200, 600])
+        self.splitter.setSizes([140, 660])
         self.setCentralWidget(self.splitter)
 
         # 状态栏 - 字数统计
