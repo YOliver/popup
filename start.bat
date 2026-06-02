@@ -1,3 +1,4 @@
 @echo off
 cd /d "%~dp0"
-start "" pythonw md_viewer.py %*
+pip show PySide6 >nul 2>&1 || pip install -r requirements.txt
+python md_viewer.py %*
