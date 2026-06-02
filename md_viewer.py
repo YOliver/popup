@@ -285,8 +285,12 @@ class MarkdownViewer(QMainWindow):
             return
 
         _t_md = time.perf_counter()
+        # python-markdown 严格按 4 空格识别嵌套列表，但很多用户惯用 3 空格
+        # （与有序列表标记 "1. " 后内容的列对齐）。这里把"列表项内"3 空格缩进
+        # 规范为 4 空格，避免子列表被解析成同级项。代码围栏内不处理。
+        normalized = self._normalize_list_indent(content)
         html_body = markdown.markdown(
-            content,
+            normalized,
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
 
@@ -314,6 +318,44 @@ class MarkdownViewer(QMainWindow):
                      (_t_render - _t_md) * 1000,
                      (time.perf_counter() - _t_render) * 1000,
                      (time.perf_counter() - _t) * 1000)
+
+    @staticmethod
+    def _normalize_list_indent(content: str) -> str:
+        """把列表项内 3 空格缩进的子项规范为 4 空格。
+
+        典型场景：
+            1. step:
+               - sub a   ← 这里只有 3 个空格（与 "1. " 后内容对齐）
+               - sub b
+        python-markdown 不会把它识别为嵌套子列表，会"提级"成同级 li。
+        本函数把"行首恰好 3 个空格 + 列表标记/正文"的行改为 4 空格。
+        代码围栏（``` ~~~）内的行保持原样。
+        """
+        out = []
+        in_fence = False
+        fence_marker = None
+        fence_re = re.compile(r'^(```+|~~~+)')
+        for line in content.split('\n'):
+            stripped = line.lstrip(' ')
+            indent_len = len(line) - len(stripped)
+            m = fence_re.match(stripped)
+            if m:
+                if in_fence and stripped.startswith(fence_marker):
+                    in_fence = False
+                elif not in_fence:
+                    in_fence = True
+                    fence_marker = m.group(1)[:3]
+                out.append(line)
+                continue
+            if in_fence:
+                out.append(line)
+                continue
+            # 仅处理"行首恰好 3 个空格"的非空行
+            if indent_len == 3 and stripped:
+                out.append(' ' + line)  # 3 → 4
+            else:
+                out.append(line)
+        return '\n'.join(out)
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
