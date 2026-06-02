@@ -41,7 +41,8 @@ logger.debug("Logging init: +%.0fms", (time.perf_counter() - _startup_time) * 10
 _t = time.perf_counter()
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser,
-    QSplitter, QTreeWidget, QTreeWidgetItem, QWidget
+    QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
+    QHBoxLayout, QVBoxLayout
 )
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer
@@ -134,14 +135,46 @@ class MarkdownViewer(QMainWindow):
             }
         """)
 
+        # 目录折叠/展开按钮 - 贴在正文左边缘
+        self.toc_toggle_btn = QToolButton()
+        self.toc_toggle_btn.setText("▶")
+        self.toc_toggle_btn.setToolTip("显示目录 (Ctrl+B)")
+        self.toc_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.toc_toggle_btn.setFixedWidth(16)
+        self.toc_toggle_btn.setStyleSheet("""
+            QToolButton {
+                background: #f0f0f0;
+                border: none;
+                border-right: 1px solid #ddd;
+                color: #666;
+                font-size: 10px;
+            }
+            QToolButton:hover {
+                background: #e0e0e0;
+                color: #000;
+            }
+        """)
+        self.toc_toggle_btn.clicked.connect(self.toggle_toc)
+
+        # 正文容器：左边缘按钮 + QTextBrowser
+        content_widget = QWidget()
+        content_layout = QHBoxLayout(content_widget)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+        content_layout.addWidget(self.toc_toggle_btn)
+        content_layout.addWidget(self.text_browser)
+
         # 用 Splitter 组合边栏和正文，支持拖动调节宽度
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.toc_tree)
-        self.splitter.addWidget(self.text_browser)
+        self.splitter.addWidget(content_widget)
         self.splitter.setStretchFactor(0, 0)
         self.splitter.setStretchFactor(1, 1)
         self.splitter.setSizes([140, 660])
         self.setCentralWidget(self.splitter)
+
+        # 默认隐藏目录
+        self.toc_tree.hide()
 
         # 状态栏 - 字数统计
         self.word_count_label = QLabel("")
@@ -161,13 +194,11 @@ class MarkdownViewer(QMainWindow):
         refresh_action.triggered.connect(self.reload_file)
         file_menu.addAction(refresh_action)
 
-        # 视图菜单 - 边栏控制
-        view_menu = menubar.addMenu("视图")
-        self.toggle_toc_action = QAction("显示目录", self, checkable=True)
-        self.toggle_toc_action.setChecked(True)
-        self.toggle_toc_action.setShortcut("Ctrl+B")
-        self.toggle_toc_action.triggered.connect(self.toggle_toc)
-        view_menu.addAction(self.toggle_toc_action)
+        # 目录折叠快捷键
+        toggle_toc_action = QAction(self)
+        toggle_toc_action.setShortcut("Ctrl+B")
+        toggle_toc_action.triggered.connect(self.toggle_toc)
+        self.addAction(toggle_toc_action)
 
         # 窗口菜单 - 分辨率选择
         window_menu = menubar.addMenu("窗口")
@@ -324,10 +355,16 @@ class MarkdownViewer(QMainWindow):
         """设置窗口大小"""
         self.resize(width, height)
 
-    def toggle_toc(self, checked):
+    def toggle_toc(self):
         """显示/隐藏目录边栏"""
-        self.toc_tree.setVisible(checked)
-        self.toggle_toc_action.setText("显示目录" if not checked else "隐藏目录")
+        if self.toc_tree.isVisible():
+            self.toc_tree.hide()
+            self.toc_toggle_btn.setText("▶")
+            self.toc_toggle_btn.setToolTip("显示目录 (Ctrl+B)")
+        else:
+            self.toc_tree.show()
+            self.toc_toggle_btn.setText("◀")
+            self.toc_toggle_btn.setToolTip("隐藏目录 (Ctrl+B)")
 
     def update_toc(self, content):
         """从 Markdown 内容中提取标题，更新目录树"""
