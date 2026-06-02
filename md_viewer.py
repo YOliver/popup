@@ -289,13 +289,13 @@ class MarkdownViewer(QMainWindow):
         # （与有序列表标记 "1. " 后内容的列对齐）。这里把"列表项内"3 空格缩进
         # 规范为 4 空格，避免子列表被解析成同级项。代码围栏内不处理。
         normalized = self._normalize_list_indent(content)
-        html_body = markdown.markdown(
-            normalized,
+        md = markdown.Markdown(
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
+        html_body = md.convert(normalized)
 
-        # 更新目录边栏
-        self.update_toc(content)
+        # 更新目录边栏（从 toc 扩展直接拿 slug，避免文本搜索误匹配）
+        self.update_toc(getattr(md, 'toc_tokens', []))
 
         # 保存滚动位置
         scrollbar = self.text_browser.verticalScrollBar()
@@ -408,44 +408,34 @@ class MarkdownViewer(QMainWindow):
             self.toc_toggle_btn.setText("◀")
             self.toc_toggle_btn.setToolTip("隐藏目录 (Ctrl+B)")
 
-    def update_toc(self, content):
-        """从 Markdown 内容中提取标题，更新目录树"""
+    def update_toc(self, toc_tokens):
+        """根据 markdown toc 扩展产出的 tokens 更新目录树。
+
+        每个 token 形如 {'level':int,'id':str,'name':str,'children':[...]}。
+        把 id（HTML anchor slug）保存到 UserRole，点击时用 scrollToAnchor 精确跳转。
+        """
         self.toc_tree.clear()
-        # 匹配 # 到 ###### 形式的标题（忽略代码块中的内容简化处理）
-        pattern = re.compile(r'^(#{1,6})\s+(.+?)\s*$', re.MULTILINE)
-        # 移除代码块内容以避免误识别
-        content_no_code = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
 
-        stack = []  # [(level, item)]
-        for match in pattern.finditer(content_no_code):
-            level = len(match.group(1))
-            text = match.group(2).strip()
-            item = QTreeWidgetItem([text])
-            item.setData(0, Qt.ItemDataRole.UserRole, text)
+        def add_tokens(tokens, parent):
+            for tok in tokens:
+                item = QTreeWidgetItem([tok.get('name', '')])
+                item.setData(0, Qt.ItemDataRole.UserRole, tok.get('id', ''))
+                if parent is None:
+                    self.toc_tree.addTopLevelItem(item)
+                else:
+                    parent.addChild(item)
+                if tok.get('children'):
+                    add_tokens(tok['children'], item)
 
-            # 找到合适的父节点
-            while stack and stack[-1][0] >= level:
-                stack.pop()
-            if stack:
-                stack[-1][1].addChild(item)
-            else:
-                self.toc_tree.addTopLevelItem(item)
-            stack.append((level, item))
-
+        add_tokens(toc_tokens, None)
         self.toc_tree.expandAll()
 
     def on_toc_clicked(self, item, column):
-        """点击目录项，跳转到对应标题位置"""
-        title = item.data(0, Qt.ItemDataRole.UserRole)
-        if not title:
+        """点击目录项，按 anchor id 精确跳转"""
+        anchor_id = item.data(0, Qt.ItemDataRole.UserRole)
+        if not anchor_id:
             return
-        # 在渲染后的文本中查找标题位置并滚动
-        doc = self.text_browser.document()
-        cursor = doc.find(title)
-        if not cursor.isNull():
-            self.text_browser.setTextCursor(cursor)
-            # 滚动到目标位置
-            self.text_browser.ensureCursorVisible()
+        self.text_browser.scrollToAnchor(anchor_id)
 
     def open_help_doc(self, path):
         """打开帮助文档"""
