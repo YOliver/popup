@@ -1,4 +1,4 @@
-# Markdown 实时预览工具 (MdViewer)
+# Popup - Markdown 实时预览工具
 
 > 当前版本：v1.3.0
 
@@ -12,7 +12,7 @@
 - 窗口大小可调，菜单提供多种预设分辨率
 - 支持拖拽文件到窗口中打开
 - 支持命令行参数直接打开文件
-- 延迟加载 WebEngine，启动速度优化
+- 轻量渲染引擎，快速启动
 
 ## 使用方式
 
@@ -25,11 +25,11 @@ start.bat readme.md
 
 ### 使用安装包
 
-运行 `installer/MdViewer_Setup.exe` 安装，支持开始菜单和桌面快捷方式。
+运行 `installer/Popup_Setup.exe` 安装，支持开始菜单和桌面快捷方式。
 
 ### 使用打包后的 exe
 
-双击 `dist/MdViewer.exe` 运行，无需 Python 环境。
+双击 `dist/Popup.exe` 运行，无需 Python 环境。
 
 ## 快捷键
 
@@ -43,6 +43,7 @@ start.bat readme.md
 - **文件 → 打开** — 选择 Markdown 文件
 - **文件 → 刷新** — 手动刷新渲染
 - **窗口** — 选择预设分辨率调整窗口大小
+- **日志 → 打开日志目录** — 查看运行日志
 
 ## 构建发布包
 
@@ -51,8 +52,8 @@ release.bat
 ```
 
 输出：
-- `dist/MdViewer.exe` — 单文件可执行程序
-- `installer/MdViewer_Setup.exe` — Windows 安装包
+- `dist/Popup.exe` — 单文件可执行程序
+- `installer/Popup_Setup.exe` — Windows 安装包
 
 ## 依赖
 

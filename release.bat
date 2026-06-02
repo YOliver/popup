@@ -5,7 +5,7 @@ echo === Building Release ===
 
 pip show pyinstaller >nul 2>&1 || pip install pyinstaller
 
-pyinstaller --onefile --windowed --icon=app_icon.ico --name MdViewer md_viewer.py
+pyinstaller --onefile --windowed --icon=app_icon.ico --name Popup md_viewer.py
 
 echo.
 echo === Building Installer ===
@@ -14,6 +14,6 @@ echo === Building Installer ===
 
 echo.
 echo === Done ===
-echo EXE: dist\MdViewer.exe
-echo Installer: installer\MdViewer_Setup.exe
+echo EXE: dist\Popup.exe
+echo Installer: installer\Popup_Setup.exe
 pause

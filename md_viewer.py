@@ -1,5 +1,5 @@
 """
-Markdown 实时预览工具
+Popup - Markdown 实时预览工具
 - 渲染 Markdown 文件并可视化显示
 - 监听文件变化，自动刷新
 - 窗口始终置顶
@@ -18,7 +18,7 @@ _startup_time = time.perf_counter()
 
 
 def setup_logging():
-    log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "MdViewer")
+    log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "Popup")
     os.makedirs(log_dir, exist_ok=True)
     handler = RotatingFileHandler(
         os.path.join(log_dir, "mdviewer.log"),
@@ -27,14 +27,14 @@ def setup_logging():
     handler.setFormatter(logging.Formatter(
         "%(asctime)s [%(levelname)s] %(message)s"
     ))
-    logger = logging.getLogger("MdViewer")
+    logger = logging.getLogger("Popup")
     logger.setLevel(logging.DEBUG)
     logger.addHandler(handler)
     return logger
 
 
 logger = setup_logging()
-logger.info("=== MdViewer v%s starting ===", VERSION)
+logger.info("=== Popup v%s starting ===", VERSION)
 logger.debug("Logging init: +%.0fms", (time.perf_counter() - _startup_time) * 1000)
 
 _t = time.perf_counter()
@@ -69,7 +69,7 @@ class MarkdownViewer(QMainWindow):
         # 窗口置顶（先设置 flags 再设置其他属性，避免 show() 时重建窗口）
         self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
-        self.setWindowTitle(f"Markdown Viewer v{VERSION}")
+        self.setWindowTitle(f"Popup v{VERSION}")
         self.setGeometry(100, 100, 800, 600)
 
         # 设置应用和窗口图标
@@ -164,7 +164,7 @@ class MarkdownViewer(QMainWindow):
             self.watcher.removePath(self.file_path)
 
         self.file_path = os.path.abspath(path)
-        self.setWindowTitle(f"Markdown Viewer v{VERSION} - {os.path.basename(self.file_path)}")
+        self.setWindowTitle(f"Popup v{VERSION} - {os.path.basename(self.file_path)}")
 
         # 添加文件监听
         self.watcher.addPath(self.file_path)
@@ -242,7 +242,7 @@ class MarkdownViewer(QMainWindow):
 
     def open_log_dir(self):
         """打开日志存储目录"""
-        log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "MdViewer")
+        log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "Popup")
         if os.path.isdir(log_dir):
             os.startfile(log_dir)
         else:
