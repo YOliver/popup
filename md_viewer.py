@@ -135,6 +135,20 @@ class MarkdownViewer(QMainWindow):
         open_log_action.triggered.connect(self.open_log_dir)
         log_menu.addAction(open_log_action)
 
+        # 帮助菜单
+        help_menu = menubar.addMenu("帮助")
+        helpdocs_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "helpdocs")
+        help_items = [
+            ("欢迎", "welcome.md"),
+            ("关于", "about.md"),
+            ("使用手册", "使用手册.md"),
+        ]
+        for label, filename in help_items:
+            doc_path = os.path.join(helpdocs_dir, filename)
+            action = QAction(label, self)
+            action.triggered.connect(lambda checked, p=doc_path: self.open_help_doc(p))
+            help_menu.addAction(action)
+
         logger.debug("init_ui: %.0fms (%.0fms total)",
                      (time.perf_counter() - _t) * 1000,
                      (time.perf_counter() - _startup_time) * 1000)
@@ -251,6 +265,16 @@ class MarkdownViewer(QMainWindow):
     def set_window_size(self, width, height):
         """设置窗口大小"""
         self.resize(width, height)
+
+    def open_help_doc(self, path):
+        """打开帮助文档"""
+        if os.path.isfile(path):
+            self.load_file(path)
+        else:
+            logger.warning("Help doc not found: %s", path)
+            self.text_browser.setHtml(self.wrap_html(
+                f"<p style='color:red;'>帮助文档未找到: {os.path.basename(path)}</p>"
+            ))
 
     @staticmethod
     def wrap_html(body):
