@@ -60,3 +60,9 @@ release.bat
 - Python 3.8+
 - PySide6
 - markdown
+
+## 文档
+
+- [欢迎](helpdocs/welcome.md) — 开发者信息与联系方式
+- [关于](helpdocs/about.md) — 版本信息与运行环境
+- [使用手册](helpdocs/使用手册.md) — 完整使用说明
