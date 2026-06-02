@@ -8,6 +8,7 @@ Popup - Markdown 实时预览工具
 
 import sys
 import os
+import re
 import time
 import logging
 from logging.handlers import RotatingFileHandler
@@ -39,7 +40,8 @@ logger.debug("Logging init: +%.0fms", (time.perf_counter() - _startup_time) * 10
 
 _t = time.perf_counter()
 from PySide6.QtWidgets import (
-    QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser
+    QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser,
+    QSplitter, QTreeWidget, QTreeWidgetItem, QWidget
 )
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer
@@ -82,6 +84,26 @@ class MarkdownViewer(QMainWindow):
         # 启用拖拽
         self.setAcceptDrops(True)
 
+        # 目录边栏
+        self.toc_tree = QTreeWidget()
+        self.toc_tree.setHeaderLabel("目录")
+        self.toc_tree.setStyleSheet("""
+            QTreeWidget {
+                background: #f7f7f7;
+                border: none;
+                font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+                font-size: 13px;
+                padding: 8px;
+            }
+            QTreeWidget::item {
+                padding: 3px 4px;
+            }
+            QTreeWidget::item:hover {
+                background: #e8e8e8;
+            }
+        """)
+        self.toc_tree.itemClicked.connect(self.on_toc_clicked)
+
         # QTextBrowser 作为渲染控件（无需 Chromium，即时创建）
         self.text_browser = QTextBrowser()
         self.text_browser.setOpenExternalLinks(True)
@@ -94,7 +116,15 @@ class MarkdownViewer(QMainWindow):
                 padding: 20px;
             }
         """)
-        self.setCentralWidget(self.text_browser)
+
+        # 用 Splitter 组合边栏和正文，支持拖动调节宽度
+        self.splitter = QSplitter(Qt.Orientation.Horizontal)
+        self.splitter.addWidget(self.toc_tree)
+        self.splitter.addWidget(self.text_browser)
+        self.splitter.setStretchFactor(0, 0)
+        self.splitter.setStretchFactor(1, 1)
+        self.splitter.setSizes([200, 600])
+        self.setCentralWidget(self.splitter)
 
         # 状态栏 - 字数统计
         self.word_count_label = QLabel("")
@@ -113,6 +143,14 @@ class MarkdownViewer(QMainWindow):
         refresh_action.setShortcut("F5")
         refresh_action.triggered.connect(self.reload_file)
         file_menu.addAction(refresh_action)
+
+        # 视图菜单 - 边栏控制
+        view_menu = menubar.addMenu("视图")
+        self.toggle_toc_action = QAction("显示目录", self, checkable=True)
+        self.toggle_toc_action.setChecked(True)
+        self.toggle_toc_action.setShortcut("Ctrl+B")
+        self.toggle_toc_action.triggered.connect(self.toggle_toc)
+        view_menu.addAction(self.toggle_toc_action)
 
         # 窗口菜单 - 分辨率选择
         window_menu = menubar.addMenu("窗口")
@@ -204,6 +242,9 @@ class MarkdownViewer(QMainWindow):
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
 
+        # 更新目录边栏
+        self.update_toc(content)
+
         # 保存滚动位置
         scrollbar = self.text_browser.verticalScrollBar()
         scroll_pos = scrollbar.value()
@@ -265,6 +306,50 @@ class MarkdownViewer(QMainWindow):
     def set_window_size(self, width, height):
         """设置窗口大小"""
         self.resize(width, height)
+
+    def toggle_toc(self, checked):
+        """显示/隐藏目录边栏"""
+        self.toc_tree.setVisible(checked)
+        self.toggle_toc_action.setText("显示目录" if not checked else "隐藏目录")
+
+    def update_toc(self, content):
+        """从 Markdown 内容中提取标题，更新目录树"""
+        self.toc_tree.clear()
+        # 匹配 # 到 ###### 形式的标题（忽略代码块中的内容简化处理）
+        pattern = re.compile(r'^(#{1,6})\s+(.+?)\s*$', re.MULTILINE)
+        # 移除代码块内容以避免误识别
+        content_no_code = re.sub(r'```.*?```', '', content, flags=re.DOTALL)
+
+        stack = []  # [(level, item)]
+        for match in pattern.finditer(content_no_code):
+            level = len(match.group(1))
+            text = match.group(2).strip()
+            item = QTreeWidgetItem([text])
+            item.setData(0, Qt.ItemDataRole.UserRole, text)
+
+            # 找到合适的父节点
+            while stack and stack[-1][0] >= level:
+                stack.pop()
+            if stack:
+                stack[-1][1].addChild(item)
+            else:
+                self.toc_tree.addTopLevelItem(item)
+            stack.append((level, item))
+
+        self.toc_tree.expandAll()
+
+    def on_toc_clicked(self, item, column):
+        """点击目录项，跳转到对应标题位置"""
+        title = item.data(0, Qt.ItemDataRole.UserRole)
+        if not title:
+            return
+        # 在渲染后的文本中查找标题位置并滚动
+        doc = self.text_browser.document()
+        cursor = doc.find(title)
+        if not cursor.isNull():
+            self.text_browser.setTextCursor(cursor)
+            # 滚动到目标位置
+            self.text_browser.ensureCursorVisible()
 
     def open_help_doc(self, path):
         """打开帮助文档"""
