@@ -294,6 +294,14 @@ class MarkdownViewer(QMainWindow):
             self.hide()
             event.ignore()
 
+    def changeEvent(self, event):
+        """重写状态变更事件：最小化时缩到托盘。"""
+        if event.type() == QEvent.Type.WindowStateChange:
+            if self.windowState() & Qt.WindowState.WindowMinimized:
+                self._save_window_geometry()
+                self.hide()
+        super().changeEvent(event)
+
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "打开 Markdown 文件", "",
