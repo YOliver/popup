@@ -9,7 +9,7 @@
 | 项目 | 内容 |
 |------|------|
 | 开发者 | oliveryin |
-| 邮箱 | 740614279@qq.com |
+| 邮箱 | oliveryin@tencent.com |
 | GitHub | https://github.com/YOliver/popup |
 
 ---
