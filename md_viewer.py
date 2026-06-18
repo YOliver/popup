@@ -302,6 +302,25 @@ class MarkdownViewer(QMainWindow):
                 self.hide()
         super().changeEvent(event)
 
+    def _save_window_geometry(self):
+        """保存当前窗口位置和大小。"""
+        self._window_geometry = self.geometry()
+
+    def restore_window(self):
+        """从托盘恢复窗口，回到原位置和大小。"""
+        if self._window_geometry is not None:
+            self.setGeometry(self._window_geometry)
+        self.show()
+        self.raise_()
+        self.activateWindow()
+
+    def quit_app(self):
+        """真正退出应用：清除托盘图标后退出进程。"""
+        if self.tray_icon is not None:
+            self.tray_icon.hide()
+        self._quitting = True
+        QApplication.quit()
+
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "打开 Markdown 文件", "",
