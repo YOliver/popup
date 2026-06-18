@@ -42,10 +42,10 @@ _t = time.perf_counter()
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser,
     QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
-    QHBoxLayout, QVBoxLayout
+    QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu
 )
 from PySide6.QtGui import QAction, QIcon
-from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
              (time.perf_counter() - _startup_time) * 1000)
