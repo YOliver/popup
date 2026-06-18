@@ -44,29 +44,31 @@ md_viewer.py ── (创建) ──→ GlobalHotkey ──→ (信号) ──→
 
 **属性：**
 - `hook_id` — `SetWindowsHookEx` 返回的钩子句柄
-- `CALLBACK_TYPE` — ctypes 函数指针类型（`WINFUNCTYPE`）
-- `clipboard_snapshot` — 监听前保存的原始剪贴板内容
+- `_hook_proc` — ctypes 回调引用（必须持有，防止被 GC 回收导致钩子静默失效）
+- `_space_triggered = False` — 空格键触发标志，钩子回调设置，QTimer 轮询
 
 **方法：**
 
-1. **`__init__()`** — 定义 ctypes 结构体/函数签名，调用 `install_hook()`
-2. **`install_hook()`** — 调用 `SetWindowsHookExW(WH_KEYBOARD_LL=13, ...)` 注册钩子
+1. **`__init__()`** — 定义 ctypes 结构体/函数签名，调用 `install_hook()`，启动 `self._poll_timer = QTimer(50ms)` 轮询 `_space_triggered` 标志
+2. **`install_hook()`** — 创建回调函数指针并保存引用：`self._hook_proc = CALLBACK_TYPE(hook_callback)`，然后调用 `SetWindowsHookExW(WH_KEYBOARD_LL=13, self._hook_proc, 0, 0)` 注册钩子
 3. **`uninstall_hook()`** — 调用 `UnhookWindowsHookEx()` 解注册（在应用退出时调用）
-4. **`handle_space()`** — 处理空格事件的核心方法：
+4. **`_poll()`** — QTimer 回调，检查 `_space_triggered` 标志：
+   - 若为 True，清除标志并调用 `handle_space()`
+5. **`handle_space()`** — 处理空格事件的核心方法：
    - 获取当前前台窗口：`GetForegroundWindow()`
    - 获取窗口类名：`GetClassNameW()`
    - 仅当类名为 `CabinetWClass`、`ExploreWClass`（资源管理器）或 `Progman`/`WorkerW`（桌面）时才继续
-   - 保存当前剪贴板内容
-   - 通过 `keybd_event` 发送 Ctrl+C 到前台窗口
-   - 短延迟后读取 Qt 剪贴板的文件列表
-   - 恢复原始剪贴板
+   - 通过 `keybd_event` 发送 Ctrl+C 到前台窗口（ctrl down → c down → c up → ctrl up）
+   - `time.sleep(0.15)` 等待 Windows 将选中文件路径写入剪贴板（阻塞主线程 150ms，可接受）
+   - 读取 Qt 剪贴板的文件列表：`QApplication.clipboard().mimeData().urls()`
+   - **注意：不恢复原始剪贴板**（Ctrl+C 操作会覆盖剪贴板内容，这是已知行为）
    - 若无文件或不在目标窗口，直接返回
    - 若有文件，调用 `on_file_selected(path)` 发射信号
-5. **`on_file_selected(path)`** — 发射 `file_selected = Signal(str)` 信号
-6. **`low_level_keyboard_proc(nCode, wParam, lParam)`** — 钩子回调（静态/模块级函数）：
-   - 仅处理 `wParam == WM_KEYDOWN` 且 `vkCode == VK_SPACE(0x20)` 的情况
-   - 调用 `QApplication.postEvent()` 将处理延迟到事件循环执行
-   - 调用 `CallNextHookEx()` 放行按键
+6. **`on_file_selected(path)`** — 发射 `file_selected = Signal(str)` 信号
+7. **`_hook_callback(nCode, wParam, lParam)`** — 模块级钩子回调函数（通过全局变量 `_hotkey_instance` 访问实例）：
+   - 仅处理 `nCode >= 0`，`wParam == WM_KEYDOWN`，`vkCode == VK_SPACE(0x20)` 的情况
+   - 设置 `_hotkey_instance._space_triggered = True`
+   - 调用 `CallNextHookEx()` 放行按键（不拦截，空格正常传递给前台窗口）
 
 ### 3.3 修改文件：`md_viewer.py`
 
@@ -84,14 +86,18 @@ from global_hotkey import GlobalHotkey
 ### 3.4 调用关系
 
 ```
-Windows → Keyboard Hook → Qt Event → handle_space()
+Windows → Hook Callback → _space_triggered = True
+                                    │
+                    QTimer(50ms) → _poll() → handle_space()
                                         ├─ 检查前台窗口
-                                        ├─ 保存剪贴板 → 发送 Ctrl+C → 读剪贴板 → 恢复剪贴板
+                                        ├─ 发送 Ctrl+C → 等待 150ms → 读剪贴板
                                         ├─ 有文件 → file_selected.emit(path)
                                         └─ 无文件 → 返回
                                         │
                                   md_viewer.py
-                                  load_file(path)
+                                  handle_hotkey_file(path)
+                                  ├─ load_file(path)
+                                  └─ if hidden → restore_window()
 ```
 
 ## 4. Window API 详细定义
@@ -111,9 +117,10 @@ Windows → Keyboard Hook → Qt Event → handle_space()
 
 ## 5. 异常处理
 
-- 前台窗口为 Explorer/桌面的验证：通过 `GetClassNameW` 检查类名
+- 前台窗口为 Explorer/桌面的验证：通过 `GetClassNameW` 检查类名，兼容 `CabinetWClass`/`ExploreWClass`（资源管理器）和 `Progman`/`WorkerW`（桌面）
 - 前台窗口为资源管理器但无选中文件：Ctrl+C 不会放入任何文件到剪贴板，逻辑自然跳过
-- 钩子注册失败（无管理员权限等）：静默失败，不影响主程序运行
+- 钩子注册失败：静默失败，不影响主程序运行
+- 剪贴板覆盖：发送 Ctrl+C 会覆盖用户原有剪贴板内容，这是已知限制
 - 退出时确保 `uninstall_hook()` 被调用，避免资源泄漏
 
 ## 6. 影响范围
