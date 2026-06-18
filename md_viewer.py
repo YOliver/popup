@@ -14,6 +14,7 @@ import logging
 from logging.handlers import RotatingFileHandler
 import markdown
 from version import VERSION
+from global_hotkey import GlobalHotkey
 
 _startup_time = time.perf_counter()
 
@@ -71,6 +72,10 @@ class MarkdownViewer(QMainWindow):
 
         self.init_ui()
         self.init_tray()
+
+        # 全局空格热键 — 打开资源管理器/桌面选中的文件
+        self._hotkey = GlobalHotkey(self)
+        self._hotkey.file_selected.connect(self._handle_hotkey_file)
 
     def init_ui(self):
         _t = time.perf_counter()
@@ -255,6 +260,12 @@ class MarkdownViewer(QMainWindow):
             self.text_browser.setHtml(self.wrap_html(
                 "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>"
             ))
+
+    def _handle_hotkey_file(self, path):
+        """全局热键回调：加载文件，如果窗口隐藏则恢复显示。"""
+        self.load_file(path)
+        if self.isHidden():
+            self.restore_window()
 
     def init_tray(self):
         """初始化系统托盘图标和右键菜单。"""
