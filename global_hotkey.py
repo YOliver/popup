@@ -107,3 +107,48 @@ class GlobalHotkey(QObject):
             self._hook_id = None
         global _hotkey_instance
         _hotkey_instance = None
+
+    def _poll(self):
+        """QTimer 回调：检查空格触发标志。"""
+        if self._space_triggered:
+            self._space_triggered = False
+            self.handle_space()
+
+    def _get_foreground_class(self):
+        """获取当前前台窗口的类名。"""
+        hwnd = user32.GetForegroundWindow()
+        buf = ctypes.create_unicode_buffer(256)
+        user32.GetClassNameW(hwnd, buf, 256)
+        return buf.value
+
+    def _send_ctrl_c(self):
+        """模拟 Ctrl+C 组合键，通知前台窗口复制选中文件到剪贴板。"""
+        null = ctypes.c_ulong(0)
+        user32.keybd_event(VK_CONTROL, 0, 0, None)           # Ctrl down
+        user32.keybd_event(ord('C'), 0, 0, None)              # C down
+        time.sleep(0.02)
+        user32.keybd_event(ord('C'), 0, KEYEVENTF_KEYUP, None)  # C up
+        user32.keybd_event(VK_CONTROL, 0, KEYEVENTF_KEYUP, None)  # Ctrl up
+
+    def _read_clipboard_files(self):
+        """从剪贴板读取 CF_HDROP 格式的文件路径列表。"""
+        clipboard = QApplication.clipboard()
+        mime = clipboard.mimeData()
+        urls = mime.urls()
+        return [u.toLocalFile() for u in urls if u.isLocalFile()]
+
+    def handle_space(self):
+        """处理空格热键：获取前台窗口的选中文件并发射信号。"""
+        class_name = self._get_foreground_class()
+        if class_name not in EXPLORER_CLASSES and class_name not in DESKTOP_CLASSES:
+            return
+
+        self._send_ctrl_c()
+        time.sleep(0.15)  # 等待 Windows 将文件路径写入剪贴板
+
+        files = self._read_clipboard_files()
+        if files:
+            self.file_selected.emit(files[0])
+
+    def __del__(self):
+        self._uninstall_hook()
