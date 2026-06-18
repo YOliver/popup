@@ -5,7 +5,7 @@ echo === Building Release ===
 
 pip show pyinstaller >nul 2>&1 || pip install pyinstaller
 
-pyinstaller --onefile --windowed --icon=app_icon.ico --name Popup md_viewer.py
+pyinstaller Popup.spec
 
 echo.
 echo === Building Installer ===
