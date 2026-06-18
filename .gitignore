@@ -3,6 +3,7 @@ dist/
 installer/
 __pycache__/
 *.spec
+!Popup.spec
 *.pyc
 .env
 .codebuddy/*
