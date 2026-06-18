@@ -37,18 +37,19 @@ from PySide6.QtWidgets import QSystemTrayIcon, QMenu
 2. **新增属性**：
    - `self.tray_icon: QSystemTrayIcon` — 系统托盘图标实例
    - `self._window_geometry` — 隐藏窗口前保存的窗口位置和大小，恢复时用 `setGeometry()` 还原
+   - `self._quitting = False` — 退出标志，区分"缩到托盘"和"真正退出"
 
 3. **新增方法 `init_tray()`**：
    - 创建 `QSystemTrayIcon`，使用 `app_icon.ico` 作为图标
    - 设置工具提示文字（如 "Popup v1.5.0"）
-   - 创建右键菜单（`QMenu`），包含「退出」菜单项，触发 `QApplication.quit()`
-   - 监听 `activated` 信号：双击时调用 `self.show()` + `self.raise_()` + `self.activateWindow()`
+   - 创建右键菜单（`QMenu`），包含「退出」菜单项，触发 `self.quit_app()`
+     - `quit_app()`：设置 `self._quitting = True`，然后调用 `QApplication.quit()`
+   - 监听 `activated` 信号：只有双击（`QSystemTrayIcon.ActivationReason.DoubleClick`）才调用 `self.restore_window()`
    - 调用 `tray_icon.show()` 显示托盘图标
 
 4. **新增方法 `closeEvent(event)`（重写）**：
-   - 调用 `self.hide()`，将窗口从屏幕上移除
-   - 调用 `self._save_window_geometry()` 保存当前窗口位置大小
-   - 调用 `event.ignore()` 阻止默认关闭行为
+   - 如果 `self._quitting` 为 True → `event.accept()` 真正关闭窗口（允许进程退出）
+   - 否则 → `event.ignore()` + `self.hide()` + `self._save_window_geometry()`（缩到托盘）
 
 5. **新增方法 `changeEvent(event)`（重写）**：
    - 监听 `QEvent.Type.WindowStateChange`
@@ -61,13 +62,16 @@ from PySide6.QtWidgets import QSystemTrayIcon, QMenu
    - 如果 `self._window_geometry` 非空，调用 `self.setGeometry(self._window_geometry)`
    - 调用 `self.show()`、`self.raise_()`、`self.activateWindow()`
 
+8. **新增方法 `quit_app()`**：
+   - 设置 `self._quitting = True`
+   - 调用 `QApplication.quit()`
+
 ### 3.3 调用关系
 
 ```
-用户点击 X ──→ closeEvent() ──→ hide() + save_geometry()
-用户点击 _ ──→ changeEvent() ──→ hide() + save_geometry()
-双击托盘图标 ──→ tray_icon.activated ──→ restore_window()
-右键退出 ──→ QApplication.quit() ──→ 进程退出
+用户点击 X/最小化 ──→ closeEvent() / changeEvent() ──→ hide() + save_geometry()
+双击托盘图标 ──→ tray_icon.activated(DoubleClick) ──→ restore_window()
+右键托盘 → 退出 ──→ quit_app()(_quitting=True) → QApplication.quit() → closeEvent 放行
 ```
 
 ## 4. 异常处理
