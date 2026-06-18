@@ -285,6 +285,15 @@ class MarkdownViewer(QMainWindow):
         if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
             self.restore_window()
 
+    def closeEvent(self, event):
+        """重写关闭事件：点 X 缩到托盘，仅 _quitting=True 时真正退出。"""
+        if self._quitting:
+            event.accept()
+        else:
+            self._save_window_geometry()
+            self.hide()
+            event.ignore()
+
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "打开 Markdown 文件", "",
