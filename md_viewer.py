@@ -256,6 +256,35 @@ class MarkdownViewer(QMainWindow):
                 "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>"
             ))
 
+    def init_tray(self):
+        """初始化系统托盘图标和右键菜单。"""
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "app_icon.ico")
+        if os.path.isfile(icon_path):
+            self.tray_icon = QSystemTrayIcon(QIcon(icon_path), self)
+        else:
+            self.tray_icon = QSystemTrayIcon(self)
+
+        self.tray_icon.setToolTip(f"Popup v{VERSION}")
+
+        # 右键菜单
+        menu = QMenu()
+        quit_action = menu.addAction("退出")
+        quit_action.triggered.connect(self.quit_app)
+        self.tray_icon.setContextMenu(menu)
+
+        # 双击托盘图标恢复窗口
+        self.tray_icon.activated.connect(self.on_tray_activated)
+
+        self.tray_icon.show()
+
+    def on_tray_activated(self, reason):
+        """托盘图标激活回调：双击恢复窗口。"""
+        if reason == QSystemTrayIcon.ActivationReason.DoubleClick:
+            self.restore_window()
+
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "打开 Markdown 文件", "",
