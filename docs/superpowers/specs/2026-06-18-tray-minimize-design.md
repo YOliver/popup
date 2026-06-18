@@ -26,9 +26,8 @@
 
 **新增导入**
 
-```python
-from PySide6.QtWidgets import QSystemTrayIcon, QMenu
-```
+- `PySide6.QtWidgets`：追加 `QSystemTrayIcon, QMenu`
+- `PySide6.QtCore`：追加 `QEvent`
 
 **MarkdownViewer 类修改**
 
@@ -63,6 +62,7 @@ from PySide6.QtWidgets import QSystemTrayIcon, QMenu
    - 调用 `self.show()`、`self.raise_()`、`self.activateWindow()`
 
 8. **新增方法 `quit_app()`**：
+   - 调用 `self.tray_icon.hide()` 清除托盘图标（避免退出后图标残留）
    - 设置 `self._quitting = True`
    - 调用 `QApplication.quit()`
 
