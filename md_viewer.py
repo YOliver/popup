@@ -64,7 +64,13 @@ class MarkdownViewer(QMainWindow):
         self.refresh_timer.setInterval(300)
         self.refresh_timer.timeout.connect(self.reload_file)
 
+        # 托盘相关属性（在 init_ui 之后初始化）
+        self.tray_icon = None
+        self._window_geometry = None
+        self._quitting = False
+
         self.init_ui()
+        self.init_tray()
 
     def init_ui(self):
         _t = time.perf_counter()
