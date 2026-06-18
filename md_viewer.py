@@ -442,7 +442,12 @@ class MarkdownViewer(QMainWindow):
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
         if not os.path.isfile(path):
-            QTimer.singleShot(500, lambda: self.re_watch(path))
+            # 使用带 parent 的 QTimer，窗口销毁时自动取消，防止访问已释放对象
+            timer = QTimer(self)
+            timer.setSingleShot(True)
+            timer.setInterval(500)
+            timer.timeout.connect(lambda: self.re_watch(path))
+            timer.start()
         else:
             self.refresh_timer.start()
         logger.debug("File changed: %s", path)

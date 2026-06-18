@@ -81,6 +81,7 @@ class GlobalHotkey(QObject):
         self._hook_id = None
         self._hook_proc = None
         self._space_triggered = False
+        self._reading_clipboard = False  # 防重入标志
 
         # 轮询定时器，50ms 间隔检查空格标志
         self._poll_timer = QTimer(self)
@@ -139,16 +140,30 @@ class GlobalHotkey(QObject):
 
     def handle_space(self):
         """处理空格热键：获取前台窗口的选中文件并发射信号。"""
+        if self._reading_clipboard:
+            return  # 防重入：已有等待中的剪贴板读取
+
         class_name = self._get_foreground_class()
         if class_name not in EXPLORER_CLASSES and class_name not in DESKTOP_CLASSES:
             return
 
         self._send_ctrl_c()
-        time.sleep(0.15)  # 等待 Windows 将文件路径写入剪贴板
+        self._reading_clipboard = True
+        # 异步等待 Windows 将文件路径写入剪贴板，避免阻塞 GUI 线程
+        timer = QTimer(self)
+        timer.setSingleShot(True)
+        timer.setInterval(150)
+        timer.timeout.connect(self._read_clipboard_and_emit)
+        timer.start()
 
-        files = self._read_clipboard_files()
-        if files:
-            self.file_selected.emit(files[0])
+    def _read_clipboard_and_emit(self):
+        """读取剪贴板中的文件路径并发射信号。"""
+        try:
+            files = self._read_clipboard_files()
+            if files:
+                self.file_selected.emit(files[0])
+        finally:
+            self._reading_clipboard = False  # 确保标志被重置
 
     def __del__(self):
         self._uninstall_hook()
