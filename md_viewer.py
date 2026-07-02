@@ -431,6 +431,54 @@ class MarkdownViewer(QMainWindow):
         """防抖延迟刷新匹配计数"""
         self._count_timer.start()
 
+    def update_match_count(self):
+        """全文扫描统计匹配总数并定位当前序号"""
+        text = self.search_input.text()
+        if not text:
+            self._clear_search_state()
+            return
+        flags = self._search_flags()
+        cur_cursor = self.text_browser.textCursor()
+        # 当前选中位置：若有选区用 selectionStart，否则用光标位置
+        cur_pos = cur_cursor.selectionStart() if cur_cursor.hasSelection() else cur_cursor.position()
+        doc = self.text_browser.document()
+        pos = 0
+        total = 0
+        current = 0
+        while True:
+            cursor = doc.find(text, pos, flags)
+            if cursor.isNull():
+                break
+            total += 1
+            # 判断当前匹配是否包含当前光标位置
+            if cursor.selectionStart() <= cur_pos <= cursor.selectionEnd():
+                current = total
+            pos = cursor.position()
+        if total == 0:
+            self.match_count_label.setText("无结果")
+            self.search_input.setStyleSheet("""
+                QLineEdit {
+                    border: 1px solid #e00;
+                    border-radius: 3px;
+                    padding: 2px 8px;
+                    background: #fff;
+                    min-width: 200px;
+                }
+            """)
+        else:
+            if current == 0:
+                current = 1  # 可能当前光标恰好在第一个匹配前
+            self.match_count_label.setText(f"第 {current} / 共 {total} 个")
+            self.search_input.setStyleSheet("""
+                QLineEdit {
+                    border: 1px solid #ccc;
+                    border-radius: 3px;
+                    padding: 2px 8px;
+                    background: #fff;
+                    min-width: 200px;
+                }
+            """)
+
     def find_next(self):
         """向后查找下一个匹配，到末尾回绕"""
         text = self.search_input.text()
