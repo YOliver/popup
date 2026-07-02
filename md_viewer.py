@@ -349,6 +349,28 @@ class MarkdownViewer(QMainWindow):
                 "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>"
             ))
 
+    def eventFilter(self, obj, event):
+        """拦截搜索框键盘事件"""
+        if obj == self.search_input and event.type() == QEvent.Type.KeyPress:
+            key = event.key()
+            modifiers = event.modifiers()
+            if key == Qt.Key.Key_Return or key == Qt.Key.Key_Enter:
+                if modifiers & Qt.KeyboardModifier.ShiftModifier:
+                    self.find_previous()
+                else:
+                    self.find_next()
+                return True
+            elif key == Qt.Key.Key_Escape:
+                self.close_search()
+                return True
+            elif key == Qt.Key.Key_Down:
+                self.find_next()
+                return True
+            elif key == Qt.Key.Key_Up:
+                self.find_previous()
+                return True
+        return super().eventFilter(obj, event)
+
     def _handle_hotkey_file(self, path):
         """全局热键回调：加载文件，如果窗口隐藏则恢复显示。"""
         self.load_file(path)
