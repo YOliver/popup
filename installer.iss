@@ -1,6 +1,6 @@
 [Setup]
 AppName=Popup
-AppVersion=1.5.2
+AppVersion=1.5.3
 AppPublisher=Popup
 DefaultDirName={autopf}\Popup
 DefaultGroupName=Popup
