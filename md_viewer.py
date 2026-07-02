@@ -173,13 +173,89 @@ class MarkdownViewer(QMainWindow):
         """)
         self.toc_toggle_btn.clicked.connect(self.toggle_toc)
 
-        # 正文容器：左边缘按钮 + QTextBrowser
+        # 文本搜索条（默认隐藏，Ctrl+F 弹出）
+        self.search_bar = QWidget()
+        self.search_bar.setStyleSheet("""
+            QWidget#search_bar {
+                background: #f5f5f5;
+                border-bottom: 1px solid #ddd;
+            }
+        """)
+        self.search_bar.setObjectName("search_bar")
+        search_layout = QHBoxLayout(self.search_bar)
+        search_layout.setContentsMargins(8, 4, 8, 4)
+        search_layout.setSpacing(6)
+
+        self.search_input = QLineEdit()
+        self.search_input.setPlaceholderText("查找...")
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                padding: 2px 8px;
+                background: #fff;
+                min-width: 200px;
+            }
+        """)
+        self.search_input.installEventFilter(self)
+
+        self.match_count_label = QLabel("")
+        self.match_count_label.setStyleSheet("color: #666; font-size: 12px;")
+
+        self.prev_btn = QToolButton()
+        self.prev_btn.setText("▲")
+        self.prev_btn.setToolTip("上一个 (Shift+Enter / ↑)")
+        self.prev_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.next_btn = QToolButton()
+        self.next_btn.setText("▼")
+        self.next_btn.setToolTip("下一个 (Enter / ↓)")
+        self.next_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        self.case_btn = QToolButton()
+        self.case_btn.setText("Aa")
+        self.case_btn.setToolTip("区分大小写")
+        self.case_btn.setCheckable(True)
+        self.case_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.case_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
+
+        self.word_btn = QToolButton()
+        self.word_btn.setText("全词")
+        self.word_btn.setToolTip("全词匹配")
+        self.word_btn.setCheckable(True)
+        self.word_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.word_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
+
+        self.close_btn = QToolButton()
+        self.close_btn.setText("✕")
+        self.close_btn.setToolTip("关闭 (Esc)")
+        self.close_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+
+        search_layout.addWidget(self.search_input)
+        search_layout.addWidget(self.match_count_label)
+        search_layout.addWidget(self.prev_btn)
+        search_layout.addWidget(self.next_btn)
+        search_layout.addWidget(self.case_btn)
+        search_layout.addWidget(self.word_btn)
+        search_layout.addWidget(self.close_btn)
+
+        self.search_bar.hide()
+
+        # 内层行：左边缘按钮 + QTextBrowser（原有布局）
+        content_row = QWidget()
+        content_row_layout = QHBoxLayout(content_row)
+        content_row_layout.setContentsMargins(0, 0, 0, 0)
+        content_row_layout.setSpacing(0)
+        content_row_layout.addWidget(self.toc_toggle_btn)
+        content_row_layout.addWidget(self.text_browser)
+
+        # 正文容器：搜索条（默认隐藏）+ 内层行
         content_widget = QWidget()
-        content_layout = QHBoxLayout(content_widget)
+        content_layout = QVBoxLayout(content_widget)
         content_layout.setContentsMargins(0, 0, 0, 0)
         content_layout.setSpacing(0)
-        content_layout.addWidget(self.toc_toggle_btn)
-        content_layout.addWidget(self.text_browser)
+        content_layout.addWidget(self.search_bar)
+        content_layout.addWidget(content_row)
 
         # 用 Splitter 组合边栏和正文，支持拖动调节宽度
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
