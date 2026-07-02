@@ -50,7 +50,7 @@ from PySide6.QtWidgets import (
         self._count_timer = QTimer(self)
         self._count_timer.setSingleShot(True)
         self._count_timer.setInterval(150)
-        self._count_timer.timeout.connect(self.update_match_count)
+        self._count_timer.timeout.connect(lambda: self.update_match_count())
 ```
 
 - [ ] **Step 3: 验证语法无报错**
