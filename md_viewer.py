@@ -397,6 +397,48 @@ class MarkdownViewer(QMainWindow):
             }
         """)
 
+    def _do_find(self):
+        """从当前光标位置向后查找（不回绕）"""
+        text = self.search_input.text()
+        if not text:
+            self._clear_search_state()
+            return
+        flags = self._search_flags()
+        found = self.text_browser.find(text, flags)
+        if not found:
+            self.match_count_label.setText("无结果")
+            self.search_input.setStyleSheet("""
+                QLineEdit {
+                    border: 1px solid #e00;
+                    border-radius: 3px;
+                    padding: 2px 8px;
+                    background: #fff;
+                    min-width: 200px;
+                }
+            """)
+        else:
+            self.search_input.setStyleSheet("""
+                QLineEdit {
+                    border: 1px solid #ccc;
+                    border-radius: 3px;
+                    padding: 2px 8px;
+                    background: #fff;
+                    min-width: 200px;
+                }
+            """)
+
+    def _schedule_count_update(self):
+        """防抖延迟刷新匹配计数"""
+        self._count_timer.start()
+
+    def on_search_text_changed(self, text):
+        """输入文本变化时实时触发搜索"""
+        if not text:
+            self._clear_search_state()
+            return
+        self._do_find()
+        self._schedule_count_update()
+
     def close_search(self):
         """关闭搜索条，清理状态"""
         self._count_timer.stop()
