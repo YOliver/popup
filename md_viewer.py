@@ -218,15 +218,12 @@ class MarkdownViewer(QMainWindow):
         self.case_btn.setCheckable(True)
         self.case_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.case_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
-        self.case_btn.clicked.connect(self.toggle_case)
-
         self.word_btn = QToolButton()
         self.word_btn.setText("全词")
         self.word_btn.setToolTip("全词匹配")
         self.word_btn.setCheckable(True)
         self.word_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.word_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
-        self.word_btn.clicked.connect(self.toggle_whole_word)
 
         self.close_btn = QToolButton()
         self.close_btn.setText("✕")
