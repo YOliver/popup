@@ -31,7 +31,9 @@
 - 方案 B（`ExtraSelection` 全量高亮）：代码量更大，超出当前需求。
 - 方案 C（HTML `<mark>` 重渲染）：破坏原 HTML、影响滚动与目录联动，最易出 bug，不采用。
 
-Markdown 文档规模小，每次改词全文扫描计数的性能开销可忽略。
+Markdown 文档规模小，每次改词全文扫描计数的性能开销通常可忽略。为避免在超长文档下逐字符输入时频繁全量扫描，计数扫描做输入防抖（debounce，约 150ms）：输入变化后延迟触发计数刷新，跳转/高亮第一个匹配仍即时进行。
+
+高亮策略：只高亮当前匹配项（`find()` 选区），其余匹配不额外标记——这是方案 A 的既定取舍。
 
 ## 3. 架构与放置位置
 
@@ -71,12 +73,12 @@ content_widget (QVBoxLayout)
 
 新增 `Ctrl+F` 的 `QAction`（写法同现有 Ctrl+O / F5 / Ctrl+B，见 `md_viewer.py:198-212`），`triggered` 连接到 `show_search()`。
 
-搜索条内的键盘交互通过给 `search_input` 安装事件过滤器（或子类化处理 `keyPressEvent`）拦截 Enter / Shift+Enter / Esc。
+搜索条内的键盘交互通过给 `search_input` 安装事件过滤器（`installEventFilter` + `eventFilter`）拦截 Enter / Shift+Enter / Esc，避免为单个输入框新增子类，贴合现有单文件风格。
 
 ## 4. 核心方法
 
 - `show_search()`：显示搜索条；若正文有选中文本则预填入输入框并全选；聚焦输入框。若已显示则重新聚焦并全选已有内容。
-- `on_search_text_changed(text)`：实时触发。空文本 → 清状态；否则从本次搜索起点重新 `find()` 并刷新计数。
+- `on_search_text_changed(text)`：实时触发。空文本 → 清状态；否则从本次搜索起点重新 `find()` 立即跳转/高亮第一个匹配，计数刷新经防抖定时器（约 150ms）延迟执行。
 - `find_next()` / `find_previous()`：向后 / 向前 `find()`，到末尾 / 开头时回绕，刷新计数。
 - `update_match_count()`：全文扫描算 total 与 current，更新计数标签与红框状态。
 - `toggle_case()` / `toggle_whole_word()`：切换标志后立即从当前位置重新查找并刷新计数。
@@ -110,6 +112,7 @@ content_widget (QVBoxLayout)
 6. 无结果红框、空输入清空状态。
 7. 打开新文件 / 刷新后搜索状态正确（保留搜索词并重新计数）。
 8. 与目录折叠、全局热键并存无冲突。
+9. 确认 Ctrl+F 无快捷键冲突（不与 QTextBrowser 内置查找或其它已有快捷键冲突）。
 
 > 若后续希望加轻量自动化测试（如 pytest-qt），可另行评估；当前默认走手动清单，符合项目现状。
 
