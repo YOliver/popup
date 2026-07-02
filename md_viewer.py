@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
     QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit
 )
-from PySide6.QtGui import QAction, QIcon, QTextDocument
+from PySide6.QtGui import QAction, QIcon, QTextDocument, QTextCursor
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
@@ -430,6 +430,36 @@ class MarkdownViewer(QMainWindow):
     def _schedule_count_update(self):
         """防抖延迟刷新匹配计数"""
         self._count_timer.start()
+
+    def find_next(self):
+        """向后查找下一个匹配，到末尾回绕"""
+        text = self.search_input.text()
+        if not text:
+            return
+        flags = self._search_flags()
+        found = self.text_browser.find(text, flags)
+        if not found:
+            # 回绕：从文档开头重新查找
+            cursor = self.text_browser.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.Start)
+            self.text_browser.setTextCursor(cursor)
+            self.text_browser.find(text, flags)
+        self.update_match_count()
+
+    def find_previous(self):
+        """向前查找上一个匹配，到开头回绕"""
+        text = self.search_input.text()
+        if not text:
+            return
+        flags = self._search_flags() | QTextDocument.FindFlag.FindBackward
+        found = self.text_browser.find(text, flags)
+        if not found:
+            # 回绕：从文档末尾重新查找
+            cursor = self.text_browser.textCursor()
+            cursor.movePosition(QTextCursor.MoveOperation.End)
+            self.text_browser.setTextCursor(cursor)
+            self.text_browser.find(text, flags)
+        self.update_match_count()
 
     def on_search_text_changed(self, text):
         """输入文本变化时实时触发搜索"""
