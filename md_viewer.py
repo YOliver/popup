@@ -667,7 +667,10 @@ class MarkdownViewer(QMainWindow):
         # python-markdown 严格按 4 空格识别嵌套列表，但很多用户惯用 3 空格
         # （与有序列表标记 "1. " 后内容的列对齐）。这里把"列表项内"3 空格缩进
         # 规范为 4 空格，避免子列表被解析成同级项。代码围栏内不处理。
-        normalized = self._normalize_list_indent(content)
+        # 先拍平缩进围栏，再规范列表缩进（必须先 dedent 后 normalize，
+        # 否则 normalize 改动的缩进量会导致围栏对不齐）
+        normalized = self._dedent_fenced_blocks(content)
+        normalized = self._normalize_list_indent(normalized)
         md = markdown.Markdown(
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
