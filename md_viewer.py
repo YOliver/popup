@@ -405,12 +405,15 @@ class MarkdownViewer(QMainWindow):
         """)
 
     def _do_find(self):
-        """从当前光标位置向后查找（不回绕）"""
+        """从文档开头开始查找，始终定位到第一个匹配"""
         text = self.search_input.text()
         if not text:
             self._clear_search_state()
             return
         flags = self._search_flags()
+        cursor = self.text_browser.textCursor()
+        cursor.movePosition(QTextCursor.MoveOperation.Start)
+        self.text_browser.setTextCursor(cursor)
         found = self.text_browser.find(text, flags)
         if not found:
             self.match_count_label.setText("无结果")
@@ -544,10 +547,6 @@ class MarkdownViewer(QMainWindow):
                 self.search_input.setText(cursor.selectedText())
             self.search_input.setFocus()
             self.search_input.selectAll()
-            # 若已有文本（预填或之前残留），触发搜索
-            if self.search_input.text():
-                self._do_find()
-                self._schedule_count_update()
 
     def toggle_case(self, checked):
         """切换区分大小写后重新查找"""
@@ -649,10 +648,6 @@ class MarkdownViewer(QMainWindow):
         # 添加文件监听
         self.watcher.addPath(self.file_path)
         self.reload_file()
-        # 若搜索条开着，文档内容已通过 reload_file 刷新，重新计数
-        if self.search_bar.isVisible() and self.search_input.text():
-            self._do_find()
-            self.update_match_count()
         logger.info("Opened file: %s", self.file_path)
 
     def reload_file(self):
@@ -690,6 +685,11 @@ class MarkdownViewer(QMainWindow):
 
         # 恢复滚动位置
         scrollbar.setValue(scroll_pos)
+
+        # 若搜索条开着，刷新搜索状态
+        if self.search_bar.isVisible() and self.search_input.text():
+            self._do_find()
+            self.update_match_count()
 
         # 更新状态栏字数统计
         char_count = len(content)
