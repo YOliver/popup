@@ -240,6 +240,14 @@ class MarkdownViewer(QMainWindow):
 
         self.search_bar.hide()
 
+        # 信号连接（所有方法已在前面 Task 中定义，连接时立即可用）
+        self.search_input.textChanged.connect(self.on_search_text_changed)
+        self.next_btn.clicked.connect(self.find_next)
+        self.prev_btn.clicked.connect(self.find_previous)
+        self.case_btn.toggled.connect(self.toggle_case)
+        self.word_btn.toggled.connect(self.toggle_whole_word)
+        self.close_btn.clicked.connect(self.close_search)
+
         # 内层行：左边缘按钮 + QTextBrowser（原有布局）
         content_row = QWidget()
         content_row_layout = QHBoxLayout(content_row)
