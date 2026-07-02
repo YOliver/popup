@@ -704,6 +704,44 @@ class MarkdownViewer(QMainWindow):
                      (time.perf_counter() - _t) * 1000)
 
     @staticmethod
+    def _dedent_fenced_blocks(content: str) -> str:
+        """把缩进的代码围栏（```` ``` ````` / `~~~`）及其内部行整体左移到顶格。
+
+        python-markdown 的 fenced_code 扩展不识别缩进在列表项内的围栏，
+        会把 ``` 退化成内联 code，导致多行内容在 Qt 富文本里挤成一行。
+        本函数在渲染前把所有缩进围栏拍平到顶格，使 fenced_code 能正确识别。
+        围栏内代码的相对缩进予以保留。
+        """
+        lines = content.split('\n')
+        out = []
+        i = 0
+        open_re = re.compile(r'^(\s*)(`{3,}|~{3,})(.*)$')
+        close_re = re.compile(r'^(\s*)(`{3,}|~{3,})\s*$')
+        while i < len(lines):
+            line = lines[i]
+            m = open_re.match(line)
+            if m and m.group(1):  # 缩进围栏开始
+                indent = m.group(1)
+                fence_char = m.group(2)[0]    # ` 或 ~
+                fence_len = len(m.group(2))   # 反引号/波浪号个数
+                out.append(line[len(indent):])
+                i += 1
+                while i < len(lines):
+                    inner = lines[i]
+                    cm = close_re.match(inner)
+                    # 闭合判断：同类型且数量 >= 开启围栏
+                    if cm and cm.group(2)[0] == fence_char and len(cm.group(2)) >= fence_len:
+                        out.append(inner[len(indent):] if inner.startswith(indent) else inner.lstrip())
+                        i += 1
+                        break
+                    out.append(inner[len(indent):] if inner.startswith(indent) else inner.lstrip())
+                    i += 1
+            else:
+                out.append(line)
+                i += 1
+        return '\n'.join(out)
+
+    @staticmethod
     def _normalize_list_indent(content: str) -> str:
         """把列表项内 3 空格缩进的子项规范为 4 空格。
 
