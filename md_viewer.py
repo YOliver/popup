@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
     QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit
 )
-from PySide6.QtGui import QAction, QIcon
+from PySide6.QtGui import QAction, QIcon, QTextDocument
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
@@ -370,6 +370,57 @@ class MarkdownViewer(QMainWindow):
                 self.find_previous()
                 return True
         return super().eventFilter(obj, event)
+
+    def _search_flags(self):
+        """根据当前选项配置构建查找标志"""
+        flags = QTextDocument.FindFlags()
+        if self.case_btn.isChecked():
+            flags |= QTextDocument.FindFlag.FindCaseSensitively
+        if self.word_btn.isChecked():
+            flags |= QTextDocument.FindFlag.FindWholeWords
+        return flags
+
+    def _clear_search_state(self):
+        """清空搜索高亮和计数状态"""
+        self.match_count_label.setText("")
+        cursor = self.text_browser.textCursor()
+        if cursor.hasSelection():
+            cursor.clearSelection()
+            self.text_browser.setTextCursor(cursor)
+        self.search_input.setStyleSheet("""
+            QLineEdit {
+                border: 1px solid #ccc;
+                border-radius: 3px;
+                padding: 2px 8px;
+                background: #fff;
+                min-width: 200px;
+            }
+        """)
+
+    def close_search(self):
+        """关闭搜索条，清理状态"""
+        self._count_timer.stop()
+        self._clear_search_state()
+        self.search_bar.hide()
+        self.text_browser.setFocus()
+
+    def show_search(self):
+        """显示搜索条，有选中文本时预填"""
+        if self.search_bar.isVisible():
+            # 已显示：重新聚焦并全选
+            self.search_input.setFocus()
+            self.search_input.selectAll()
+        else:
+            self.search_bar.show()
+            cursor = self.text_browser.textCursor()
+            if cursor.hasSelection():
+                self.search_input.setText(cursor.selectedText())
+            self.search_input.setFocus()
+            self.search_input.selectAll()
+            # 若已有文本（预填或之前残留），触发搜索
+            if self.search_input.text():
+                self._do_find()
+                self._schedule_count_update()
 
     def _handle_hotkey_file(self, path):
         """全局热键回调：加载文件，如果窗口隐藏则恢复显示。"""
