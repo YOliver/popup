@@ -78,18 +78,18 @@ content_widget (QVBoxLayout)
 ## 4. 核心方法
 
 - `show_search()`：显示搜索条；若正文有选中文本则预填入输入框并全选；聚焦输入框。若已显示则重新聚焦并全选已有内容。
-- `on_search_text_changed(text)`：实时触发。空文本 → 清状态；否则从本次搜索起点重新 `find()` 立即跳转/高亮第一个匹配，计数刷新经防抖定时器（约 150ms）延迟执行。
+- `on_search_text_changed(text)`：实时触发。空文本 → 清状态；否则从当前选区位置（即上一次匹配位置）继续向后 `find()` 立即跳转/高亮第一个匹配，计数刷新经防抖定时器（约 150ms）延迟执行。
 - `find_next()` / `find_previous()`：向后 / 向前 `find()`，到末尾 / 开头时回绕，刷新计数。
 - `update_match_count()`：全文扫描算 total 与 current，更新计数标签与红框状态。
 - `toggle_case()` / `toggle_whole_word()`：切换标志后立即从当前位置重新查找并刷新计数。
-- `close_search()`：隐藏搜索条，清除选区，焦点还给正文。
+- `close_search()`：取消防抖定时器，隐藏搜索条，清除选区，焦点还给正文。
 
 标志拼装：根据 `case_btn` / `word_btn` 勾选状态组合 `QTextDocument.FindFlag`，反向导航时追加 `FindBackward`。
 
 ## 5. 键盘交互
 
 - `Ctrl+F`：显示搜索条并聚焦；若已显示则重新聚焦并全选输入框内容。
-- 输入框内：`Enter` = 下一个，`Shift+Enter` = 上一个，`Esc` = 关闭。
+- 输入框内：`Enter` / `↓` = 下一个，`Shift+Enter` / `↑` = 上一个，`Esc` = 关闭。
 
 ## 6. 边界情况
 
