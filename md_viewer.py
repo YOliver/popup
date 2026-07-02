@@ -218,6 +218,7 @@ class MarkdownViewer(QMainWindow):
         self.case_btn.setCheckable(True)
         self.case_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.case_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
+        self.case_btn.clicked.connect(self.toggle_case)
 
         self.word_btn = QToolButton()
         self.word_btn.setText("全词")
@@ -225,6 +226,7 @@ class MarkdownViewer(QMainWindow):
         self.word_btn.setCheckable(True)
         self.word_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.word_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
+        self.word_btn.clicked.connect(self.toggle_whole_word)
 
         self.close_btn = QToolButton()
         self.close_btn.setText("✕")
@@ -541,6 +543,16 @@ class MarkdownViewer(QMainWindow):
             if self.search_input.text():
                 self._do_find()
                 self._schedule_count_update()
+
+    def toggle_case(self, checked):
+        """切换区分大小写后重新查找"""
+        self._do_find()
+        self.update_match_count()
+
+    def toggle_whole_word(self, checked):
+        """切换全词匹配后重新查找"""
+        self._do_find()
+        self.update_match_count()
 
     def _handle_hotkey_file(self, path):
         """全局热键回调：加载文件，如果窗口隐藏则恢复显示。"""
