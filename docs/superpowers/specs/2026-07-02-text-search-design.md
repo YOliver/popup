@@ -118,5 +118,5 @@ content_widget (QVBoxLayout)
 
 ## 8. 影响范围
 
-- 仅修改 `md_viewer.py`：调整正文容器布局、新增搜索条控件与相关方法、新增 Ctrl+F 快捷键。
+- 仅修改 `md_viewer.py`：新增 `QLineEdit` 导入；调整正文容器布局；新增搜索条控件与相关方法；新增 Ctrl+F 快捷键。
 - 不新增源文件；不改动 Markdown 渲染逻辑、目录树、全局热键模块。
