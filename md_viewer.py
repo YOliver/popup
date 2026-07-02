@@ -43,7 +43,7 @@ _t = time.perf_counter()
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser,
     QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
-    QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu
+    QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit
 )
 from PySide6.QtGui import QAction, QIcon
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
@@ -69,6 +69,12 @@ class MarkdownViewer(QMainWindow):
         self.tray_icon = None
         self._window_geometry = None
         self._quitting = False
+
+        # 文本搜索状态
+        self._count_timer = QTimer(self)
+        self._count_timer.setSingleShot(True)
+        self._count_timer.setInterval(150)
+        self._count_timer.timeout.connect(lambda: self.update_match_count())
 
         self.init_ui()
         self.init_tray()
