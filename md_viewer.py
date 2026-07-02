@@ -649,6 +649,10 @@ class MarkdownViewer(QMainWindow):
         # 添加文件监听
         self.watcher.addPath(self.file_path)
         self.reload_file()
+        # 若搜索条开着，文档内容已通过 reload_file 刷新，重新计数
+        if self.search_bar.isVisible() and self.search_input.text():
+            self._do_find()
+            self.update_match_count()
         logger.info("Opened file: %s", self.file_path)
 
     def reload_file(self):
