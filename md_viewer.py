@@ -293,6 +293,12 @@ class MarkdownViewer(QMainWindow):
         toggle_toc_action.triggered.connect(self.toggle_toc)
         self.addAction(toggle_toc_action)
 
+        # 文本搜索快捷键
+        search_action = QAction(self)
+        search_action.setShortcut("Ctrl+F")
+        search_action.triggered.connect(lambda: self.show_search())
+        self.addAction(search_action)
+
         # 窗口菜单 - 分辨率选择
         window_menu = menubar.addMenu("窗口")
         resolutions = [
