@@ -28,7 +28,7 @@ start.bat readme.md
 
 ### 使用安装包
 
-运行 `installer/Popup_Setup.exe` 安装，支持开始菜单和桌面快捷方式。
+运行 `dist/Popup_Setup_v<版本号>.exe` 安装，支持开始菜单和桌面快捷方式。
 
 ### 使用打包后的 exe
 
@@ -64,7 +64,7 @@ release.bat
 
 输出：
 - `dist/Popup.exe` — 单文件可执行程序
-- `installer/Popup_Setup.exe` — Windows 安装包
+- `dist/Popup_Setup_v<版本号>.exe` — Windows 安装包
 
 ## 依赖
 

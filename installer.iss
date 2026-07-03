@@ -1,11 +1,11 @@
 [Setup]
 AppName=Popup
-AppVersion=1.5.3
+AppVersion={#MyVersion}
 AppPublisher=Popup
 DefaultDirName={autopf}\Popup
 DefaultGroupName=Popup
-OutputDir=installer
-OutputBaseFilename=Popup_Setup
+OutputDir=dist
+OutputBaseFilename=Popup_Setup_v{#MyVersion}
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible
