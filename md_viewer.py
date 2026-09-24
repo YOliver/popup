@@ -797,6 +797,18 @@ class MarkdownViewer(QMainWindow):
             base_dir += os.sep
         return QUrl.fromLocalFile(base_dir)
 
+    @staticmethod
+    def _style_blockquotes(html: str) -> str:
+        """把 blockquote 转为单列表格，使 Qt 能渲染整块背景 + 左竖线。
+
+        Qt 富文本引擎不支持 blockquote 的块级背景（会降级为文字级背景），
+        而 table 支持整块背景/边框/内边距。python-markdown 输出的 blockquote
+        标签无属性、格式固定，字符串替换安全；嵌套引用自然变为嵌套表格。
+        """
+        html = html.replace("<blockquote>", '<table class="md-quote"><tr><td>')
+        html = html.replace("</blockquote>", "</td></tr></table>")
+        return html
+
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
         if not os.path.isfile(path):
