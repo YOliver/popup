@@ -152,6 +152,9 @@ class TestQuoteRendering(unittest.TestCase):
 
         cell_fmt = QTextTableCellFormat(tables[0].cellAt(0, 0).format())
         self.assertEqual(cell_fmt.leftBorder(), 4.0)
+        self.assertEqual(cell_fmt.topBorder(), 0.0)
+        self.assertEqual(cell_fmt.rightBorder(), 0.0)
+        self.assertEqual(cell_fmt.bottomBorder(), 0.0)
         self.assertEqual(cell_fmt.leftPadding(), 16.0)
 
 
@@ -203,6 +206,7 @@ table.md-quote {
     margin: 8px 0;
 }
 table.md-quote td {
+    border: none;
     border-left: 4px solid #ddd;
     padding: 8px 16px;
     color: #666;

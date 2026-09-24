@@ -64,6 +64,7 @@ table.md-quote {
     margin: 8px 0;
 }
 table.md-quote td {
+    border: none;
     border-left: 4px solid #ddd;
     padding: 8px 16px;
     color: #666;
@@ -73,6 +74,7 @@ table.md-quote td {
 ### 4.2 关键细节
 
 - 上述 CSS 属性均已实测在 Qt 中生效：`table` 整块背景（`background-color`）、`border: none`（消除表格默认边框线）、`td` 的 `border-left`（左侧竖线）、`td` 的 `padding`。
+- `wrap_html()` 已有全局 `td { border: 1px solid #ddd }`（用于 markdown 表格），会命中引用块的单元格使其出现整圈边框。故 `table.md-quote td` 中必须用 `border: none` 先行覆盖，再设 `border-left`，才能得到「仅左侧竖线」（已实测：left=4px，top/right/bottom=0）。
 - python-markdown 的 blockquote 输出标签固定为 `<blockquote>` / `</blockquote>`（无属性、无空白变体），`str.replace` 替换安全，不会误伤正文中的字面文本。
 - 嵌套引用（`>>`）输出为嵌套的 `<blockquote>`，替换后成为嵌套 `<table>`；已实测 Qt 支持嵌套表格结构解析，内外层引用均获得背景。
 
