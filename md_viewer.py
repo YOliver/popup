@@ -46,7 +46,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit
 )
 from PySide6.QtGui import QAction, QIcon, QTextDocument, QTextCursor
-from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
              (time.perf_counter() - _startup_time) * 1000)
@@ -781,6 +781,19 @@ class MarkdownViewer(QMainWindow):
             else:
                 out.append(line)
         return '\n'.join(out)
+
+    @staticmethod
+    def _build_base_url(file_path: str) -> QUrl:
+        """返回 md 文件所在目录的基准 URL，供 QTextBrowser 解析相对路径图片。
+
+        目录末尾必须带分隔符，否则 QUrl.fromLocalFile 会把路径当文件处理，
+        导致相对路径错误解析到父目录；根目录（如 C:\\）的 dirname 已带尾随
+        分隔符，故用 endswith 判断避免重复追加（重复追加会产出损坏的 C://）。
+        """
+        base_dir = os.path.dirname(file_path)
+        if not base_dir.endswith(os.sep):
+            base_dir += os.sep
+        return QUrl.fromLocalFile(base_dir)
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
