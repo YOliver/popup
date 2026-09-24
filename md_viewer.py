@@ -684,6 +684,8 @@ class MarkdownViewer(QMainWindow):
         scroll_pos = scrollbar.value()
 
         _t_render = time.perf_counter()
+        base_url = self._build_base_url(self.file_path)
+        self.text_browser.document().setBaseUrl(base_url)
         self.text_browser.setHtml(self.wrap_html(html_body))
 
         # 恢复滚动位置
