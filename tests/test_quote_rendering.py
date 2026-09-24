@@ -39,6 +39,35 @@ class TestQuoteRendering(unittest.TestCase):
         self.assertEqual(cell_fmt.bottomBorder(), 0.0)
         self.assertEqual(cell_fmt.leftPadding(), 16.0)
 
+    def test_table_inside_quote_not_affected(self):
+        html_in = ("<blockquote><p>引用文字</p>"
+                   "<table><tr><td>单元格</td></tr></table></blockquote>")
+        body = MarkdownViewer._style_blockquotes(html_in)
+        html = MarkdownViewer.wrap_html(body)
+
+        doc = QTextDocument()
+        doc.setHtml(html)
+
+        tables = []
+
+        def collect(frame):
+            for c in frame.childFrames():
+                if isinstance(c, QTextTable):
+                    tables.append(c)
+                    collect(c)
+
+        collect(doc.rootFrame())
+
+        self.assertEqual(len(tables), 2)
+
+        outer = QTextTableCellFormat(tables[0].cellAt(0, 0).format())
+        self.assertEqual(outer.leftBorder(), 4.0)
+        self.assertEqual(outer.topBorder(), 0.0)
+
+        inner = QTextTableCellFormat(tables[1].cellAt(0, 0).format())
+        self.assertEqual(inner.topBorder(), 1.0)
+        self.assertEqual(inner.bottomBorder(), 1.0)
+
 
 if __name__ == "__main__":
     unittest.main()

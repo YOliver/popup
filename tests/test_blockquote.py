@@ -7,7 +7,7 @@ class TestStyleBlockquotes(unittest.TestCase):
     def test_single_blockquote(self):
         html = "<blockquote>\n<p>text</p>\n</blockquote>"
         out = MarkdownViewer._style_blockquotes(html)
-        self.assertIn('<table class="md-quote"><tr><td>', out)
+        self.assertIn('<table class="md-quote"><tr><td class="md-quote-cell">', out)
         self.assertIn("</td></tr></table>", out)
         self.assertNotIn("<blockquote>", out)
         self.assertNotIn("</blockquote>", out)

@@ -806,7 +806,10 @@ class MarkdownViewer(QMainWindow):
         而 table 支持整块背景/边框/内边距。python-markdown 输出的 blockquote
         标签无属性、格式固定，字符串替换安全；嵌套引用自然变为嵌套表格。
         """
-        html = html.replace("<blockquote>", '<table class="md-quote"><tr><td>')
+        html = html.replace(
+            "<blockquote>",
+            '<table class="md-quote"><tr><td class="md-quote-cell">',
+        )
         html = html.replace("</blockquote>", "</td></tr></table>")
         return html
 
@@ -939,7 +942,7 @@ table.md-quote {{
     width: 100%;
     margin: 8px 0;
 }}
-table.md-quote td {{
+td.md-quote-cell {{
     border: none;
     border-left: 4px solid #ddd;
     padding: 8px 16px;
