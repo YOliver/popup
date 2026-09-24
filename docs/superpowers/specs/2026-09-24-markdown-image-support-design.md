@@ -19,7 +19,7 @@ self.text_browser.setHtml(self.wrap_html(html_body))
 ### 目标
 
 - 正确显示 Markdown 中引用的**本地相对路径**图片。
-- 支持常见位图格式：PNG、JPG/JPEG、GIF、BMP（由 Qt 的 `QImageReader` 原生支持，无需额外处理）。
+- 支持常见位图格式：PNG、JPG/JPEG、GIF、BMP（由 Qt 的 `QImageReader` 原生支持，无需额外处理；GIF 仅显示首帧，静态显示，不播放动画）。
 
 ### 非目标（YAGNI）
 
@@ -48,7 +48,10 @@ from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl
 2. 在 `reload_file()` 的 `setHtml()` 调用前设置基准 URL（当前第 687 行附近）：
 
 ```python
-base_url = QUrl.fromLocalFile(os.path.dirname(self.file_path) + os.sep)
+base_dir = os.path.dirname(self.file_path)
+if not base_dir.endswith(os.sep):
+    base_dir += os.sep
+base_url = QUrl.fromLocalFile(base_dir)
 self.text_browser.document().setBaseUrl(base_url)
 self.text_browser.setHtml(self.wrap_html(html_body))
 ```
@@ -56,9 +59,9 @@ self.text_browser.setHtml(self.wrap_html(html_body))
 ### 4.2 关键细节
 
 - `self.file_path` 在 `load_file()`（`md_viewer.py:645`）已通过 `os.path.abspath()` 规范为绝对路径，故 `os.path.dirname()` 得到的是绝对目录。
-- 目录字符串末尾追加 `os.sep`，确保 `QUrl.fromLocalFile()` 将路径识别为**目录**而非文件；否则相对路径会错误地解析到父目录。
+- 目录字符串末尾必须带 `os.sep`，确保 `QUrl.fromLocalFile()` 将路径识别为**目录**而非文件；否则相对路径会错误地解析到父目录。因 `os.path.dirname()` 对盘符根目录（如 `C:\`）已返回带尾随分隔符的结果，故用 `endswith(os.sep)` 判断避免重复追加（实测重复追加会产出损坏的 `file:///C://`）。
 - `QUrl.fromLocalFile()` 会自动对中文、空格等特殊字符做百分号编码，Qt 加载资源时用 `toLocalFile()` 还原为真实路径，因此中文/空格路径无需额外处理。
-- 先 `setBaseUrl()` 再 `setHtml()`；若实现验证发现 `setHtml()` 会重置 `baseUrl`，则调整为 `setHtml()` 后再 `setBaseUrl()`（以实际验证为准）。
+- 先 `setBaseUrl()` 再 `setHtml()`。已实测验证 `setHtml()` 不会重置已设置的 `baseUrl`，且 `wrap_html()` 输出的 HTML 不含 `<base>` 标签，故此顺序确定正确。
 
 ### 4.3 数据流
 
@@ -86,7 +89,7 @@ Markdown 文件 → md.convert() → HTML（含 <img src="相对路径">）
 | 空格路径 `![](my image.png)` | 正常显示 |
 | 父目录图片 `![](../shared.png)` | 正常显示（按 URL 规则解析 `../`） |
 | 图片缺失 / 路径错误 | 显示 alt 文本或空白，不崩溃 |
-| md 文件位于盘符根目录（如 `C:\foo.md`） | 目录拼接后仍解析到根目录，可接受 |
+| md 文件位于盘符根目录（如 `C:\foo.md`） | `endswith` 判断避免重复分隔符，正确解析到根目录 |
 
 ## 6. 测试计划
 
