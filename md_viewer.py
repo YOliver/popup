@@ -675,6 +675,7 @@ class MarkdownViewer(QMainWindow):
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
         html_body = md.convert(normalized)
+        html_body = self._style_blockquotes(html_body)
 
         # 更新目录边栏（从 toc 扩展直接拿 slug，避免文本搜索误匹配）
         self.update_toc(getattr(md, 'toc_tokens', []))
@@ -932,10 +933,16 @@ pre {{
     background: #f4f4f4;
     padding: 12px;
 }}
-blockquote {{
+table.md-quote {{
+    background-color: #f6f8fa;
+    border: none;
+    width: 100%;
+    margin: 8px 0;
+}}
+table.md-quote td {{
+    border: none;
     border-left: 4px solid #ddd;
-    margin: 0;
-    padding: 0 16px;
+    padding: 8px 16px;
     color: #666;
 }}
 table {{
