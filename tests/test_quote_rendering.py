@@ -29,7 +29,6 @@ class TestQuoteRendering(unittest.TestCase):
         self.assertEqual(len(tables), 1)
 
         fmt = tables[0].format()
-        self.assertEqual(fmt.background().color().name(), "#f6f8fa")
         self.assertEqual(fmt.border(), 0.0)
 
         cell_fmt = QTextTableCellFormat(tables[0].cellAt(0, 0).format())
@@ -38,6 +37,18 @@ class TestQuoteRendering(unittest.TestCase):
         self.assertEqual(cell_fmt.rightBorder(), 0.0)
         self.assertEqual(cell_fmt.bottomBorder(), 0.0)
         self.assertEqual(cell_fmt.leftPadding(), 16.0)
+
+        # 引用段落（p）的 block 背景为 #e8e8e8（table 背景 Qt 不渲染，改用段落背景）
+        blk = doc.begin()
+        found = False
+        while blk.isValid():
+            if blk.text() == "quote text":
+                self.assertEqual(
+                    blk.blockFormat().background().color().name(), "#e8e8e8"
+                )
+                found = True
+            blk = blk.next()
+        self.assertTrue(found)
 
     def test_table_inside_quote_not_affected(self):
         html_in = ("<blockquote><p>引用文字</p>"

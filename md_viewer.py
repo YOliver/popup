@@ -937,7 +937,6 @@ pre {{
     padding: 12px;
 }}
 table.md-quote {{
-    background-color: #f6f8fa;
     border: none;
     width: 100%;
     margin: 8px 0;
@@ -947,6 +946,9 @@ td.md-quote-cell {{
     border-left: 4px solid #ddd;
     padding: 8px 16px;
     color: #666;
+}}
+td.md-quote-cell p {{
+    background-color: #e8e8e8;
 }}
 table {{
     border-collapse: collapse;

@@ -1,31 +1,39 @@
 # 引用块（blockquote）视觉增强 — 设计文档
 
 - 日期：2026-09-24
-- 状态：待实现
+- 状态：已实现
 - 关联版本：v1.5.3
 
 ## 1. 背景与问题
 
-Markdown 引用块（`>` 开头的行）在 Popup 中渲染为灰色文字 + 轻微缩进，与正文几乎无区分，不够突出。主流 Markdown 软件的做法是给引用块一个整块浅色背景 + 左侧竖线。
+Markdown 引用块（`>` 开头的行）在 Popup 中渲染为灰色文字 + 轻微缩进，与正文几乎无区分，不够突出。主流 Markdown 软件的做法是给引用块一个浅色背景 + 左侧竖线。
 
-Popup 用 Qt 富文本引擎（`QTextBrowser` / `QTextDocument`）渲染 HTML。**实测确认**：Qt 对 `blockquote` 的 `background-color` 只会降级为「文字级背景」（背景贴着文字宽度，短行末尾无色块），无法实现整块背景。而 Qt 对 `<table>` 的整块背景、单元格左侧边框、内边距支持完整。
+Popup 用 Qt 富文本引擎（`QTextBrowser` / `QTextDocument`）渲染 HTML。经像素级实测，Qt 引擎对背景的绘制能力如下：
+
+| 背景位置 | 数据层 | 实际渲染 |
+|---------|--------|---------|
+| `<table>` / `<td>` 的 `background-color` | 有值 | **不绘制** |
+| 段落 `<p>` 的 `background-color`（block 级） | 有值 | ✅ 绘制（覆盖文字行宽度） |
+| `<td>` 的 `border-left`（左侧竖线） | 有值 | ✅ 绘制 |
+
+即：Qt 富文本引擎**不渲染表格/单元格的背景**，但渲染段落（block）背景和边框。因此「整块铺满的背景」在 Qt 下无法实现，可做到的是「左竖线 + 段落级浅灰背景」。
 
 ## 2. 目标与非目标
 
 ### 目标
 
-- 引用块显示为**整块浅灰背景 + 左侧竖线 + 内边距**，与正文形成清晰视觉区分。
+- 引用块显示为**左侧竖线 + 段落级浅灰背景 + 内边距**，与正文形成清晰视觉区分。
 
 ### 非目标（YAGNI）
 
+- 整块铺满的背景（Qt 引擎不支持表格背景渲染，属技术限制）。
 - 深色主题 / 主题切换。
 - 背景颜色可配置。
 - 其他块元素（列表、代码块、表格）的样式调整。
-- 引用块内的特殊语法增强。
 
 ## 3. 方案概述
 
-在渲染管线中新增一步 HTML 后处理：把 python-markdown 输出的 `<blockquote>...</blockquote>` 替换为等价的单列表格结构，利用 Qt 对表格的完整背景/边框/内边距支持，达到整块背景效果。
+在渲染管线中新增一步 HTML 后处理：把 python-markdown 输出的 `<blockquote>...</blockquote>` 替换为单列表格结构。表格用于提供**左侧竖线**（`td` 的 `border-left`，Qt 能渲染）；背景由**引用块内段落 `<p>` 的 block 级背景**提供（Qt 能渲染）。
 
 ## 4. 详细设计
 
@@ -43,13 +51,17 @@ html_body = self._style_blockquotes(html_body)
 ```python
     @staticmethod
     def _style_blockquotes(html: str) -> str:
-        """把 blockquote 转为单列表格，使 Qt 能渲染整块背景 + 左竖线。
+        """把 blockquote 转为单列表格，使 Qt 能渲染左竖线 + 段落背景。
 
-        Qt 富文本引擎不支持 blockquote 的块级背景（会降级为文字级背景），
-        而 table 支持整块背景/边框/内边距。python-markdown 输出的 blockquote
-        标签无属性、格式固定，字符串替换安全；嵌套引用自然变为嵌套表格。
+        Qt 富文本引擎不渲染 table/td 的背景（仅渲染段落 block 背景与边框），
+        故用 td 的 border-left 提供左竖线，背景由 td 内段落 p 的 block 背景
+        提供。python-markdown 输出的 blockquote 标签无属性、格式固定，字符串
+        替换安全；嵌套引用自然变为嵌套表格。
         """
-        html = html.replace("<blockquote>", '<table class="md-quote"><tr><td>')
+        html = html.replace(
+            "<blockquote>",
+            '<table class="md-quote"><tr><td class="md-quote-cell">',
+        )
         html = html.replace("</blockquote>", "</td></tr></table>")
         return html
 ```
@@ -58,34 +70,38 @@ html_body = self._style_blockquotes(html_body)
 
 ```css
 table.md-quote {
-    background-color: #f6f8fa;
     border: none;
     width: 100%;
     margin: 8px 0;
 }
-table.md-quote td {
+td.md-quote-cell {
     border: none;
     border-left: 4px solid #ddd;
     padding: 8px 16px;
     color: #666;
 }
+td.md-quote-cell p {
+    background-color: #e8e8e8;
+}
 ```
 
 ### 4.2 关键细节
 
-- 上述 CSS 属性均已实测在 Qt 中生效：`table` 整块背景（`background-color`）、`border: none`（消除表格默认边框线）、`td` 的 `border-left`（左侧竖线）、`td` 的 `padding`。
-- `wrap_html()` 已有全局 `td { border: 1px solid #ddd }`（用于 markdown 表格），会命中引用块的单元格使其出现整圈边框。故 `table.md-quote td` 中必须用 `border: none` 先行覆盖，再设 `border-left`，才能得到「仅左侧竖线」（已实测：left=4px，top/right/bottom=0）。
-- python-markdown 的 blockquote 输出标签固定为 `<blockquote>` / `</blockquote>`（无属性、无空白变体），`str.replace` 替换安全，不会误伤正文中的字面文本。
-- 嵌套引用（`>>`）输出为嵌套的 `<blockquote>`，替换后成为嵌套 `<table>`；已实测 Qt 支持嵌套表格结构解析，内外层引用均获得背景。
+- **背景不能放 table/td 层**：Qt 对 `<table>`/`<td>` 的 `background-color` 只在数据层（`frameFormat().background()`）有值，渲染层不绘制（像素级实测确认）。必须放在段落 `<p>` 的 block 层才会绘制。
+- **背景色 `#e8e8e8`**：比最初设计的 `#f6f8fa` 深，因为 block 背景只覆盖文字行宽度，浅色在纯白底上几乎不可见。
+- **左竖线走边框**：`td.md-quote-cell` 的 `border-left: 4px solid #ddd`（Qt 渲染边框）。`wrap_html()` 已有全局 `td { border: 1px solid #ddd }`（用于 markdown 表格），必须用 `border: none` 先行覆盖再设 `border-left`，否则整圈边框。
+- **避免误伤内嵌表格**：`td.md-quote-cell` 用 class 选择器（而非 `table.md-quote td` 后代选择器），切断对引用块内嵌 markdown 表格的误伤（已实测内嵌表格保持 1px 全边框）。
+- **python-markdown 标签固定**：blockquote 输出标签固定为 `<blockquote>` / `</blockquote>`（无属性），`str.replace` 替换安全。
+- **嵌套引用**：`>>` 输出嵌套 `<blockquote>`，替换后为嵌套 `<table>`，内外层段落各自获得背景与左竖线。
 
 ### 4.3 数据流
 
 ```
 Markdown → md.convert() → HTML（含 <blockquote>）
                           ↓
-            _style_blockquotes() → <table class="md-quote">...
+            _style_blockquotes() → <table class="md-quote">（左竖线容器）
                           ↓
-            setHtml() → Qt 渲染整块背景 + 左竖线
+            setHtml() → Qt 渲染：td 左竖线 + 段落 block 背景
 ```
 
 ### 4.4 错误处理
@@ -96,21 +112,22 @@ Markdown → md.convert() → HTML（含 <blockquote>）
 
 | 场景 | 预期行为 |
 |------|---------|
-| 单段引用 `> text` | 整块背景 + 左竖线 + 内边距 |
-| 多段引用（blockquote 内多个 `<p>`） | 同一单元格内多段，共用一块背景 |
-| 嵌套引用 `>> text` | 内外层各自整块背景（嵌套表格） |
-| 引用内含列表/代码块 | 在单元格内正常渲染 |
+| 单段引用 `> text` | 左竖线 + 段落浅灰背景 + 内边距 |
+| 多段引用（blockquote 内多个 `<p>`） | 各段各自背景，共用左竖线 |
+| 嵌套引用 `>> text` | 内外层各自左竖线 + 段落背景（嵌套表格） |
+| 引用内嵌 markdown 表格 | 表格保持 1px 全边框，不被误伤 |
+| 引用内含列表/代码块 | 正常渲染（列表/代码块自身无引用背景，属已知局限） |
 | 空引用 `>` | 生成空单元格，无异常 |
 | 文档无引用 | `replace` 无匹配，HTML 不变，零影响 |
 
 ## 6. 测试计划
 
 1. **单元测试**（`_style_blockquotes` 为纯函数，可自动化）：
-   - 单个 blockquote → 替换为表格结构。
+   - 单个 blockquote → 替换为表格结构（含 `td class="md-quote-cell"`）。
    - 嵌套 blockquote → 嵌套表格。
    - 无 blockquote → 字符串原样不变。
-2. **offscreen 冒烟**：渲染含引用的 md，断言 `QTextDocument` 中生成 `QTextTable` 且 `frameFormat().background()` 为 `#f6f8fa`、单元格 `leftBorder` 为 4px。
-3. **手动视觉冒烟**：打开含引用的真实 md 文件，确认整块背景、左竖线、文字颜色符合预期，并回归检查正文/代码块/图片显示不受影响。
+2. **offscreen 集成测试**：渲染含引用的 md，断言 `QTextDocument` 中生成 `QTextTable`、单元格 `leftBorder` 为 4px（其他三边 0）、引用段落 block 的 `background` 为 `#e8e8e8`；并验证引用内嵌表格不被误伤。
+3. **手动视觉冒烟**：打开含引用的真实 md 文件，确认左竖线、段落浅灰背景、文字颜色符合预期，并回归检查正文/代码块/图片显示不受影响。
 
 ## 7. 影响分析
 
