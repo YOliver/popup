@@ -119,15 +119,21 @@ git commit -m "feat: 新增 _style_blockquotes 将引用块转为表格结构"
 
 - [ ] **Step 1: 写失败测试**
 
-新建 `tests/test_quote_rendering.py`（offscreen 集成测试，无需 GUI 事件循环）：
+新建 `tests/test_quote_rendering.py`（offscreen 集成测试，需 offscreen `QApplication` 以访问单元格边框，但不弹窗、无事件循环）：
 
 ```python
+import os
+os.environ['QT_QPA_PLATFORM'] = 'offscreen'
+
 import unittest
 
 import markdown
+from PySide6.QtWidgets import QApplication
 from PySide6.QtGui import QTextDocument, QTextTable, QTextTableCellFormat
 
 from md_viewer import MarkdownViewer
+
+_app = QApplication.instance() or QApplication([])
 
 
 class TestQuoteRendering(unittest.TestCase):
