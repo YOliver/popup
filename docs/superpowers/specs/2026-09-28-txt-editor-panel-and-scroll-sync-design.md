@@ -55,7 +55,7 @@ Popup 目前只能预览 Markdown 文件，无法在不离开 Popup 的情况下
 
 ```python
 # QtWidgets 追加：QPushButton、QPlainTextEdit、QMessageBox
-# QtGui    追加：QShortcut、QKeySequence
+# QtGui    追加：QShortcut、QKeySequence、QFont
 ```
 
 **2. `__init__` 新增成员**
@@ -83,6 +83,7 @@ edit_toolbar.addWidget(self.save_btn)
 edit_toolbar.addStretch()
 edit_layout.addLayout(edit_toolbar)
 self.edit_text = QPlainTextEdit()
+self.edit_text.setFont(QFont("Consolas", 11))  # 等宽字体，保证代码块/表格对齐
 edit_layout.addWidget(self.edit_text)
 
 # 加入 splitter 最右侧
@@ -124,6 +125,7 @@ self.edit_text.verticalScrollBar().valueChanged.connect(
 
 ```python
 self.edit_action = QAction("编辑", self)
+self.edit_action.setCheckable(True)  # 面板显示时打勾，作为状态指示
 self.edit_action.triggered.connect(self.toggle_edit_panel)
 menubar.addAction(self.edit_action)
 ```
@@ -136,7 +138,7 @@ menubar.addAction(self.edit_action)
 
 ### 4.2 新增方法
 
-**toggle_edit_panel()**：未打开文件时弹提示并返回；否则在显示/隐藏间切换；显示时加载当前文件文本，并做一次初始滚动同步。
+**toggle_edit_panel()**：未打开文件时弹提示并返回；否则在显示/隐藏间切换并同步菜单"编辑"项的勾选态；显示时加载当前文件文本，并做一次初始滚动同步。
 
 **load_edit_text()**：读取 `self.file_path`（UTF-8）→ 检测换行风格 → `setPlainText`；读失败时在编辑器显示纯文本错误信息并弹 `QMessageBox` 警告。
 
@@ -153,8 +155,10 @@ def toggle_edit_panel(self):
         return
     if self.edit_panel.isVisible():
         self.edit_panel.hide()
+        self.edit_action.setChecked(False)
     else:
         self.edit_panel.show()
+        self.edit_action.setChecked(True)
         self.load_edit_text()
         self._sync_preview_to_edit(0)  # 显示时定位到预览当前比例位置
 
@@ -210,7 +214,10 @@ def _proportional_value(src, dst):
 
 
 def _sync_preview_to_edit(self, value):
-    """预览滚动 → 编辑器滚动条按比例跟随（仅滚动视图，不动光标）"""
+    """预览滚动 → 编辑器滚动条按比例跟随（仅滚动视图，不动光标）。
+
+    value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
+    """
     if self._syncing:
         return
     if not self.edit_panel.isVisible():
@@ -224,7 +231,10 @@ def _sync_preview_to_edit(self, value):
 
 
 def _sync_edit_to_preview(self, value):
-    """编辑器滚动 → 预览滚动条按比例跟随"""
+    """编辑器滚动 → 预览滚动条按比例跟随。
+
+    value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
+    """
     if self._syncing:
         return
     preview_sb = self.text_browser.verticalScrollBar()
@@ -263,7 +273,8 @@ def _sync_edit_to_preview(self, value):
 
 - **编辑内容 = Markdown 源文件原文**（不是渲染后的 HTML）。"txt 方式打开"即纯文本打开源 `.md` 文件。
 - **编码统一 UTF-8**：读写均 `encoding="utf-8"`，与现有 `reload_file` 一致。
-- **换行符保持**：`load_edit_text` 用 `newline=""` 读取并检测是否含 `\r\n`，存入 `self._file_newline`；`save_edit` 按需把 `\n` 还原为 `\r\n`，写临时文件时用 `newline=""` 不做二次转换。避免 Windows CRLF 文件被改写成 LF，导致 git diff 全文件变化。
+- **等宽字体**：编辑器用等宽字体 `QFont("Consolas", 11)` 显示，保证代码块、表格对齐（`QPlainTextEdit` 默认比例字体会导致对齐错乱）。
+- **换行符保持**：`load_edit_text` 用 `newline=""` 读取并检测是否含 `\r\n`，存入 `self._file_newline`；`save_edit` 按需把 `\n` 还原为 `\r\n`，写临时文件时用 `newline=""` 不做二次转换。避免 Windows CRLF 文件被改写成 LF，导致 git diff 全文件变化。注意 `QPlainTextEdit.toPlainText()` 统一输出 `\n`，因此 LF 与 CRLF 混用的文件保存后会被规范化为检测到的单一风格（`_file_newline`），属纯文本控件的固有限制。
 - **原子写**：写 `self.file_path + ".tmp"` 成功后 `os.replace` 到原路径；失败清理临时文件并弹提示，保证"写失败不破坏原文件"。
 - **保存后刷新闭环**：`save_edit` 写文件后显式 `reload_file()`；写文件还会触发 `QFileSystemWatcher` → 300ms 防抖后再 reload 一次。两次 reload 幂等无害。
 - **文件切换安全**：`load_file` 末尾若面板可见则 `load_edit_text()`，防止编辑器残留旧文件文本导致保存写错。
