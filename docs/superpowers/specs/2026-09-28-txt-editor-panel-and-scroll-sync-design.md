@@ -140,9 +140,11 @@ menubar.addAction(self.edit_action)
 
 **toggle_edit_panel()**：未打开文件时弹提示并返回；否则在显示/隐藏间切换并同步菜单"编辑"项的勾选态；显示时加载当前文件文本，并做一次初始滚动同步。
 
-**load_edit_text()**：读取 `self.file_path`（UTF-8）→ 检测换行风格 → `setPlainText`；读失败时在编辑器显示纯文本错误信息并弹 `QMessageBox` 警告。
+**load_edit_text()**：读取 `self.file_path`（UTF-8）→ 检测换行风格 → `setPlainText`；读失败或文件缺失时清空编辑器、置 `_edit_load_ok = False` 并弹 `QMessageBox` 警告。
 
-**save_edit()**：面板不可见或未打开文件时直接返回；`toPlainText()` 后按原文件换行风格还原换行符，原子写回，成功后 `reload_file()` 刷新预览；写失败弹错误提示且不破坏原文件。
+**save_edit()**：面板不可见、未打开文件或内容未成功加载（`_edit_load_ok` 为假）时直接返回；`toPlainText()` 后按原文件换行风格还原换行符，原子写回，成功后 `reload_file()` 刷新预览；写失败弹错误提示且不破坏原文件。
+
+**换行辅助**：`_detect_newline(content)`、`_apply_newline(text, newline)`（静态纯函数，可单测）。
 
 **滚动同步**：`_proportional_value(src, dst)`（静态辅助）、`_sync_preview_to_edit(value)`、`_sync_edit_to_preview(value)`。
 
@@ -165,16 +167,18 @@ def toggle_edit_panel(self):
 
 def load_edit_text(self):
     if not self.file_path or not os.path.isfile(self.file_path):
+        self._edit_load_ok = False
         return
     try:
         with open(self.file_path, "r", encoding="utf-8", newline="") as f:
             content = f.read()
     except Exception as e:
-        self.edit_text.setPlainText(f"[读取失败] {e}")
+        self.edit_text.clear()
+        self._edit_load_ok = False
         QMessageBox.warning(self, "读取失败", f"无法读取文件: {e}")
         return
-    # 记录换行风格，保存时保持一致，避免 CRLF 被改写为 LF
-    self._file_newline = "\r\n" if "\r\n" in content else "\n"
+    self._file_newline = self._detect_newline(content)
+    self._edit_load_ok = True
     self._syncing = True
     try:
         self.edit_text.setPlainText(content)
@@ -187,9 +191,11 @@ def save_edit(self):
         return
     if not self.file_path:
         return
+    if not self._edit_load_ok:
+        QMessageBox.warning(self, "保存失败", "文件内容未成功加载，无法保存")
+        return
     text = self.edit_text.toPlainText()
-    if self._file_newline == "\r\n":
-        text = text.replace("\n", "\r\n")
+    text = self._apply_newline(text, self._file_newline)
     tmp_path = self.file_path + ".tmp"
     try:
         with open(tmp_path, "w", encoding="utf-8", newline="") as f:
@@ -211,6 +217,20 @@ def _proportional_value(src, dst):
     """按比例把 src 滚动条当前位置映射为 dst 滚动条的目标值"""
     ratio = src.value() / max(src.maximum(), 1)
     return round(ratio * dst.maximum())
+
+
+@staticmethod
+def _detect_newline(content):
+    """检测文本使用的换行风格：含 \r\n 则视为 CRLF，否则 LF"""
+    return "\r\n" if "\r\n" in content else "\n"
+
+
+@staticmethod
+def _apply_newline(text, newline):
+    """按目标换行风格还原换行符（text 来自 toPlainText，统一为 \n）"""
+    if newline == "\r\n":
+        return text.replace("\n", "\r\n")
+    return text
 
 
 def _sync_preview_to_edit(self, value):
@@ -279,7 +299,7 @@ def _sync_edit_to_preview(self, value):
 - **保存后刷新闭环**：`save_edit` 写文件后显式 `reload_file()`；写文件还会触发 `QFileSystemWatcher` → 300ms 防抖后再 reload 一次。两次 reload 幂等无害。
 - **文件切换安全**：`load_file` 末尾若面板可见则 `load_edit_text()`，防止编辑器残留旧文件文本导致保存写错。
 - **面板不自动外部同步**：外部（VS Code 等）改动文件时只刷新预览，不重载编辑器，避免覆盖用户未保存内容。
-- **错误提示**：`QPlainTextEdit` 为纯文本控件、不支持富文本颜色，故"红色错误文本"改为"编辑器内纯文本错误信息 + `QMessageBox` 弹窗"。
+- **读取失败保护**：读失败时清空编辑器、置 `_edit_load_ok = False` 并弹 `QMessageBox`；`save_edit` 在 `_edit_load_ok` 为假时拒绝保存，防止错误文本覆盖原文件（`QPlainTextEdit` 为纯文本控件、不支持富文本颜色，故不使用"红色错误文本"）。
 
 **滚动同步**
 
@@ -309,7 +329,7 @@ def _sync_edit_to_preview(self, value):
 ### 4.6 错误处理
 
 - 未打开文件点"编辑"：`QMessageBox` 提示，面板不显示。
-- 读文件失败：编辑器内纯文本错误信息 + `QMessageBox` 警告。
+- 读文件失败：清空编辑器 + `QMessageBox` 警告，并置 `_edit_load_ok = False` 禁止保存。
 - 写文件失败：清理临时文件 + `QMessageBox` 错误提示，原文件不变（原子写保证）。
 - 滚动同步除零：`max(maximum(), 1)` 保护。
 
@@ -325,6 +345,7 @@ def _sync_edit_to_preview(self, value):
 | 保存后 | 编辑器内容 = 文件内容 = 预览内容，三者一致 |
 | 文件被外部修改（VS Code 保存） | 仅预览刷新，编辑器不重载 |
 | 文件只读/无写权限 | 保存弹错误提示，原文件不变 |
+| 读失败（非 UTF-8 等编码错误） | 清空编辑器 + 弹窗，保存被禁止（`_edit_load_ok = False`），原文件不变 |
 | 空文件 | 编辑器显示空内容，可正常编辑保存 |
 | CRLF 文件编辑保存 | 换行符保持 CRLF，不被改写为 LF |
 | 编辑面板隐藏时滚动预览 | 预览正常滚动，编辑器侧不同步 |
@@ -344,8 +365,9 @@ def _sync_edit_to_preview(self, value):
    - 快速来回滚动 → 无死循环、无卡死、无抖动回环。
    - CRLF 文件编辑保存 → 换行符不变，git diff 无全文件变化。
    - 只读文件保存 → 弹错误提示，原文件不变。
+   - 非 UTF-8 文件点"编辑" → 清空编辑器 + 弹"读取失败"，此时保存被禁止，原文件不变。
    - 空文件 / 单屏短文 → 无报错、无异常滚动。
-2. **可离线验证点**：`_proportional_value` 为纯函数，可单独单测比例换算与除零保护；UTF-8 读写往返（写原文→读回一致）可抽纯函数或冒烟核对。
+2. **可离线验证点（自动化，共 34 个测试）**：`_proportional_value`（比例换算与除零）、`_detect_newline`（CRLF/LF/空/混合检测）、`_apply_newline`（CRLF 还原/LF 不变/空文本）均为纯函数，已抽为静态方法并单测；其余 GUI 行为以手动冒烟为主。
 
 ## 7. 影响分析
 
