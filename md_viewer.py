@@ -45,7 +45,7 @@ from PySide6.QtWidgets import (
     QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
     QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit
 )
-from PySide6.QtGui import QAction, QIcon, QTextDocument, QTextCursor
+from PySide6.QtGui import QAction, QIcon, QTextDocument, QTextCursor, QFontMetricsF
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
@@ -671,10 +671,13 @@ class MarkdownViewer(QMainWindow):
         # 否则 normalize 改动的缩进量会导致围栏对不齐）
         normalized = self._dedent_fenced_blocks(content)
         normalized = self._normalize_list_indent(normalized)
+        normalized = self._preserve_indent(normalized)
         md = markdown.Markdown(
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
         )
         html_body = md.convert(normalized)
+        em_px = self._body_em_px()
+        html_body = self._apply_indent(html_body, em_px)
         html_body = self._style_blockquotes(html_body)
 
         # 更新目录边栏（从 toc 扩展直接拿 slug，避免文本搜索误匹配）
@@ -831,6 +834,17 @@ class MarkdownViewer(QMainWindow):
             n = int(m.group(1))
             return '<p style="text-indent:%.1fpx">' % (n * em_px)
         return re.sub(r'<p><i data-indent="(\d+)"></i>', repl, html)
+
+    def _body_em_px(self) -> float:
+        """返回正文字号下一个全角空格的像素宽度（约 1em），用于 text-indent 换算。
+
+        命令行直接打开文件时，首次 reload 发生在 show() 之前，样式表尚未应用，
+        font() 仍是默认字号。先 ensurePolished 强制应用样式表，保证度量到
+        正确的 14px 正文字号；全角空格缺字形时回退 14.0。
+        """
+        self.text_browser.ensurePolished()
+        em_px = QFontMetricsF(self.text_browser.font()).horizontalAdvance('\u3000')
+        return em_px if em_px > 0 else 14.0
 
     @staticmethod
     def _build_base_url(file_path: str) -> QUrl:
