@@ -84,10 +84,11 @@ def _preserve_indent(content: str) -> str:
 ```python
 @staticmethod
 def _apply_indent(html: str, em_px: float) -> str:
-    """把 <p><i data-indent="N"></i> 替换为 <p style="text-indent:{N*em_px}px">。
+    """把 <p><i data-indent="N"></i> 替换为 <p style="text-indent:%.1fpx">。
 
     Qt 的 CSS 解析不支持 em 单位（text-indent:2em 被忽略），仅支持 px，
-    故用 em_px（一个汉字/全角空格的像素宽度）换算成 px。
+    故用 em_px（一个汉字/全角空格的像素宽度）换算成 px。占位标记只出现在
+    <p> 段首，故正则只匹配 <p>；其他容器内的空 <i> 标记渲染为零宽、不可见。
     """
 ```
 
@@ -113,7 +114,8 @@ def _body_em_px(self) -> float:
 - **`em_px` 来源**：从 `self.text_browser.font()`（正文样式表固定 `font-size: 14px`）用 `QFontMetricsF.horizontalAdvance('\u3000')` 实测得到；测量前先 `ensurePolished()` 强制应用样式表（命令行直接打开文件时首次 reload 发生在 `show()` 之前，否则会度量到默认 9pt 字号）；全角空格缺字形时回退 `14.0`。
 - **跳过围栏内部**：`<pre><code>` 内 Qt 原样保留前导空格（已实测），若替换围栏内的全角空格会污染代码，故 `_preserve_indent` 需像 `_normalize_list_indent` 一样跟踪围栏开合状态。
 - **不设块标记黑名单**：全角空格本就不是 ASCII 空白，markdown 不会把 `　# 标题` / `　- 项` 识别为标题/列表，替换只会影响"该段是否缩进"。为最大化忠实还原（用户要求"如实地显示包括空格"），不做黑名单，避免误伤以数字/连字符开头的正文段落。
-- **与现有步骤顺序**：先 `_dedent_fenced_blocks`（拍平围栏）、再 `_normalize_list_indent`、再 `_preserve_indent`；`_apply_indent` 放在 `_style_blockquotes` 之前，二者互不干扰（引用内缩进同样被转成 text-indent 后再包进表格单元格）。
+- **只处理独立正文段落**：`_preserve_indent` 仅匹配行首的全角空格，列表项/引用/表格单元格以 `-`、`>`、`|` 等开头的行不会命中；列表续行等场景即使命中，占位标记也会落进 `<li>` 等容器而非 `<p>`，`_apply_indent` 的正则故意只匹配 `<p><i ...>`，不转换、遗留的空 `<i>` 零宽不可见，缩进维持原有剥离行为（符合中文排版惯例：列表/引用/表格本不做首行缩进）。
+- **与现有步骤顺序**：先 `_dedent_fenced_blocks`（拍平围栏）、再 `_normalize_list_indent`、再 `_preserve_indent`；`_apply_indent` 放在 `_style_blockquotes` 之前。引用行以 `>` 开头不会被 `_preserve_indent` 命中，故 `_apply_indent` 与 `_style_blockquotes` 实际无交集，先后顺序仅保证管线清晰。
 
 ### 4.3 数据流
 
@@ -141,7 +143,7 @@ Markdown → _dedent_fenced_blocks → _normalize_list_indent → _preserve_inde
 | 段首一个 / 三个全角空格 | 分别 `1em` / `3em`（宽度由用户打的空格数决定） |
 | 无缩进的普通段落 | 不受影响，无 `text-indent` |
 | 标题 `# 标题`（无前导空格） | 不受影响 |
-| 列表项 / 引用 / 表格行 | 不受影响（行首无全角空格） |
+| 列表项 / 引用 / 表格单元格内的全角空格 | 不处理，缩进维持原有剥离行为（这些元素本不做首行缩进） |
 | 代码围栏内含全角空格 | 不替换，`<pre><code>` 原样保留空格 |
 | `　# 标题`（全角空格 + 井号） | 视为缩进段落，`#` 作字面文本、带缩进（与 markdown 自身对全角空格行的处理一致） |
 | 全角空格出现在段落中间 | 维持 Qt 既有归一化行为，不处理（非本需求） |
