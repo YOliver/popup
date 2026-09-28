@@ -77,6 +77,7 @@ class MarkdownViewer(QMainWindow):
         # 编辑面板与滚动同步状态
         self._syncing = False      # 滚动同步防循环标志位
         self._file_newline = "\n"  # 记录原文件换行风格，保存时保持一致
+        self._edit_load_ok = True  # 文件内容是否成功加载；读失败时禁止保存
 
         # 文本搜索状态
         self._count_timer = QTimer(self)
@@ -696,16 +697,18 @@ class MarkdownViewer(QMainWindow):
     def load_edit_text(self):
         """读取当前文件原文到编辑器，记录换行风格"""
         if not self.file_path or not os.path.isfile(self.file_path):
+            self._edit_load_ok = False
             return
         try:
             with open(self.file_path, "r", encoding="utf-8", newline="") as f:
                 content = f.read()
         except Exception as e:
-            self.edit_text.setPlainText(f"[读取失败] {e}")
+            self.edit_text.clear()
+            self._edit_load_ok = False
             QMessageBox.warning(self, "读取失败", f"无法读取文件: {e}")
             return
-        # 记录换行风格，保存时保持一致，避免 CRLF 被改写为 LF
-        self._file_newline = "\r\n" if "\r\n" in content else "\n"
+        self._file_newline = self._detect_newline(content)
+        self._edit_load_ok = True
         self._syncing = True
         try:
             self.edit_text.setPlainText(content)
@@ -718,9 +721,11 @@ class MarkdownViewer(QMainWindow):
             return
         if not self.file_path:
             return
+        if not self._edit_load_ok:
+            QMessageBox.warning(self, "保存失败", "文件内容未成功加载，无法保存")
+            return
         text = self.edit_text.toPlainText()
-        if self._file_newline == "\r\n":
-            text = text.replace("\n", "\r\n")
+        text = self._apply_newline(text, self._file_newline)
         tmp_path = self.file_path + ".tmp"
         try:
             with open(tmp_path, "w", encoding="utf-8", newline="") as f:
@@ -1064,6 +1069,18 @@ class MarkdownViewer(QMainWindow):
         """按比例把 src 滚动条当前位置映射为 dst 滚动条的目标值"""
         ratio = src.value() / max(src.maximum(), 1)
         return round(ratio * dst.maximum())
+
+    @staticmethod
+    def _detect_newline(content):
+        """检测文本使用的换行风格：含 \r\n 则视为 CRLF，否则 LF"""
+        return "\r\n" if "\r\n" in content else "\n"
+
+    @staticmethod
+    def _apply_newline(text, newline):
+        """按目标换行风格还原换行符（text 来自 toPlainText，统一为 \n）"""
+        if newline == "\r\n":
+            return text.replace("\n", "\r\n")
+        return text
 
     def open_log_dir(self):
         """打开日志存储目录"""
