@@ -140,7 +140,7 @@ menubar.addAction(self.edit_action)
 
 **load_edit_text()**：读取 `self.file_path`（UTF-8）→ 检测换行风格 → `setPlainText`；读失败时在编辑器显示纯文本错误信息并弹 `QMessageBox` 警告。
 
-**save_edit()**：面板不可见时直接返回；`toPlainText()` 后按原文件换行风格还原换行符，原子写回，成功后 `reload_file()` 刷新预览；写失败弹错误提示且不破坏原文件。
+**save_edit()**：面板不可见或未打开文件时直接返回；`toPlainText()` 后按原文件换行风格还原换行符，原子写回，成功后 `reload_file()` 刷新预览；写失败弹错误提示且不破坏原文件。
 
 **滚动同步**：`_proportional_value(src, dst)`（静态辅助）、`_sync_preview_to_edit(value)`、`_sync_edit_to_preview(value)`。
 
@@ -180,6 +180,8 @@ def load_edit_text(self):
 
 def save_edit(self):
     if not self.edit_panel.isVisible():
+        return
+    if not self.file_path:
         return
     text = self.edit_text.toPlainText()
     if self._file_newline == "\r\n":
