@@ -301,12 +301,14 @@ class MarkdownViewer(QMainWindow):
         self.setCentralWidget(self.splitter)
 
         # 编辑器保存快捷键（仅编辑器聚焦时生效）
+        # 注意：PySide6 6.11 已移除 QShortcut(QKeySequence, parent, context)
+        # 的三位置参数形式，需用带 callable 的重载或 parent+setter。
         self.save_shortcut = QShortcut(
             QKeySequence("Ctrl+S"),
             self.edit_text,
-            Qt.ShortcutContext.WidgetWithChildrenShortcut,
+            self.save_edit,
+            context=Qt.ShortcutContext.WidgetWithChildrenShortcut,
         )
-        self.save_shortcut.activated.connect(self.save_edit)
 
         self.edit_panel.hide()
 

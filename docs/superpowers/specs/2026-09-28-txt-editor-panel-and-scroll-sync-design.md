@@ -101,9 +101,9 @@ self.edit_panel.hide()
 self.save_shortcut = QShortcut(
     QKeySequence("Ctrl+S"),
     self.edit_text,
-    Qt.ShortcutContext.WidgetWithChildrenShortcut,
+    self.save_edit,
+    context=Qt.ShortcutContext.WidgetWithChildrenShortcut,
 )
-self.save_shortcut.activated.connect(self.save_edit)
 ```
 
 `WidgetWithChildrenShortcut` 保证 Ctrl+S 仅在编辑器（或其子控件）获得焦点时触发，而非整个窗口。
