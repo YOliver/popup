@@ -23,5 +23,21 @@ class TestPreserveIndent(unittest.TestCase):
         self.assertEqual(MarkdownViewer._preserve_indent(content), content)
 
 
+class TestApplyIndent(unittest.TestCase):
+    def test_marker_becomes_text_indent(self):
+        html = '<p><i data-indent="2"></i>正文</p>'
+        out = MarkdownViewer._apply_indent(html, 14.0)
+        self.assertEqual(out, '<p style="text-indent:28.0px">正文</p>')
+
+    def test_plain_paragraph_unchanged(self):
+        html = '<p>正文</p>'
+        self.assertEqual(MarkdownViewer._apply_indent(html, 14.0), html)
+
+    def test_three_fullwidth_spaces(self):
+        html = '<p><i data-indent="3"></i>正文</p>'
+        out = MarkdownViewer._apply_indent(html, 14.0)
+        self.assertEqual(out, '<p style="text-indent:42.0px">正文</p>')
+
+
 if __name__ == "__main__":
     unittest.main()

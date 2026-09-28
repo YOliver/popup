@@ -820,6 +820,19 @@ class MarkdownViewer(QMainWindow):
         return '\n'.join(out)
 
     @staticmethod
+    def _apply_indent(html: str, em_px: float) -> str:
+        """把 <p><i data-indent="N"></i> 替换为 <p style="text-indent:%.1fpx">。
+
+        Qt 的 CSS 解析不支持 em 单位（text-indent:2em 被忽略），仅支持 px，
+        故用 em_px（一个汉字/全角空格的像素宽度）换算成 px。占位标记只出现在
+        <p> 段首，故正则只匹配 <p>；其他容器内的空 <i> 标记渲染为零宽、不可见。
+        """
+        def repl(m):
+            n = int(m.group(1))
+            return '<p style="text-indent:%.1fpx">' % (n * em_px)
+        return re.sub(r'<p><i data-indent="(\d+)"></i>', repl, html)
+
+    @staticmethod
     def _build_base_url(file_path: str) -> QUrl:
         """返回 md 文件所在目录的基准 URL，供 QTextBrowser 解析相对路径图片。
 
