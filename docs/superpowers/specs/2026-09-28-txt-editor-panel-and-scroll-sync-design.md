@@ -277,7 +277,7 @@ def _sync_edit_to_preview(self, value):
 - **光标不动**：只操作滚动条 value，不触碰编辑器/预览光标。
 - **面板隐藏保护**：`_sync_preview_to_edit` 在面板不可见时直接返回；`_sync_edit_to_preview` 由编辑器滚动条自身触发，编辑器必然可见。
 - **程序性滚动隔离**：`reload_file` 的 `setHtml`/`setValue`、`load_edit_text` 的 `setPlainText` 都会触发 `valueChanged`。这些程序性改动期间用 `self._syncing` 包裹（见 4.3 `load_edit_text`，及 `reload_file` 中 `setHtml` + `scrollbar.setValue(scroll_pos)` 处），避免误触发同步导致滚动闪动或位置错乱。
-- **初始同步**：`toggle_edit_panel` 显示面板后调用一次 `_sync_preview_to_edit`，让编辑器定位到预览当前比例位置。
+- **初始同步**：`toggle_edit_panel` 显示面板后调用一次 `_sync_preview_to_edit`，让编辑器定位到预览当前比例位置。已实测 `QPlainTextEdit.setPlainText()` 后 `verticalScrollBar().maximum()` 立即同步更新（PySide6 6.11，offscreen 验证，`maximum` 与 `processEvents()` 后一致），无需额外的 `processEvents()`/`updateGeometry()`。
 
 ### 4.5 数据流
 
