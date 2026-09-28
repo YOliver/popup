@@ -912,6 +912,12 @@ class MarkdownViewer(QMainWindow):
             if os.path.isfile(path):
                 self.load_file(path)
 
+    @staticmethod
+    def _proportional_value(src, dst):
+        """按比例把 src 滚动条当前位置映射为 dst 滚动条的目标值"""
+        ratio = src.value() / max(src.maximum(), 1)
+        return round(ratio * dst.maximum())
+
     def open_log_dir(self):
         """打开日志存储目录"""
         log_dir = os.path.join(os.environ.get("LOCALAPPDATA", "."), "Popup")
