@@ -130,6 +130,10 @@ menubar.addAction(self.edit_action)
 
 `menubar.addAction` 会追加到当前菜单栏末尾，因此必须插入到"窗口"菜单创建之前，才能落在"文件"之后、"窗口"之前。
 
+**7. `reload_file` 程序性滚动隔离**
+
+现有 `reload_file` 里的 `setHtml` 与 `scrollbar.setValue(scroll_pos)` 都会触发 `valueChanged`，进而触发滚动同步。用 `_syncing` 包裹这两行（完整片段见 4.3），避免刷新时误触发同步导致滚动闪动或位置错乱。
+
 ### 4.2 新增方法
 
 **toggle_edit_panel()**：未打开文件时弹提示并返回；否则在显示/隐藏间切换；显示时加载当前文件文本，并做一次初始滚动同步。
@@ -227,6 +231,28 @@ def _sync_edit_to_preview(self, value):
         self._proportional_value(self.edit_text.verticalScrollBar(), preview_sb)
     )
     self._syncing = False
+```
+
+**修改现有 `reload_file`**（原代码只做 `setHtml` + `scrollbar.setValue(scroll_pos)` 恢复位置，现用 `_syncing` 包裹以隔离程序性滚动）：
+
+```python
+        # 保存滚动位置
+        scrollbar = self.text_browser.verticalScrollBar()
+        scroll_pos = scrollbar.value()
+
+        _t_render = time.perf_counter()
+        base_url = self._build_base_url(self.file_path)
+        self.text_browser.document().setBaseUrl(base_url)
+
+        # 程序性滚动隔离：setHtml/setValue 会触发 valueChanged，
+        # 用 _syncing 包裹，避免刷新时误触发滚动同步导致闪动
+        self._syncing = True
+        try:
+            self.text_browser.setHtml(self.wrap_html(html_body))
+            # 恢复滚动位置
+            scrollbar.setValue(scroll_pos)
+        finally:
+            self._syncing = False
 ```
 
 ### 4.4 关键细节
