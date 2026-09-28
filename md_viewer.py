@@ -43,9 +43,13 @@ _t = time.perf_counter()
 from PySide6.QtWidgets import (
     QApplication, QMainWindow, QFileDialog, QLabel, QTextBrowser,
     QSplitter, QTreeWidget, QTreeWidgetItem, QWidget, QToolButton,
-    QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit
+    QHBoxLayout, QVBoxLayout, QSystemTrayIcon, QMenu, QLineEdit,
+    QPushButton, QPlainTextEdit, QMessageBox
 )
-from PySide6.QtGui import QAction, QIcon, QTextDocument, QTextCursor, QFontMetricsF
+from PySide6.QtGui import (
+    QAction, QIcon, QTextDocument, QTextCursor, QFontMetricsF,
+    QShortcut, QKeySequence, QFont
+)
 from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
@@ -69,6 +73,10 @@ class MarkdownViewer(QMainWindow):
         self.tray_icon = None
         self._window_geometry = None
         self._quitting = False
+
+        # 编辑面板与滚动同步状态
+        self._syncing = False      # 滚动同步防循环标志位
+        self._file_newline = "\n"  # 记录原文件换行风格，保存时保持一致
 
         # 文本搜索状态
         self._count_timer = QTimer(self)
@@ -264,14 +272,42 @@ class MarkdownViewer(QMainWindow):
         content_layout.addWidget(self.search_bar)
         content_layout.addWidget(content_row)
 
-        # 用 Splitter 组合边栏和正文，支持拖动调节宽度
+        # 右侧 txt 编辑面板（默认隐藏）
+        self.edit_panel = QWidget()
+        edit_layout = QVBoxLayout(self.edit_panel)
+        edit_layout.setContentsMargins(0, 0, 0, 0)
+        edit_layout.setSpacing(0)
+        edit_toolbar = QHBoxLayout()
+        edit_toolbar.setContentsMargins(6, 4, 6, 4)
+        self.save_btn = QPushButton("保存")
+        self.save_btn.clicked.connect(self.save_edit)
+        edit_toolbar.addWidget(self.save_btn)
+        edit_toolbar.addStretch()
+        edit_layout.addLayout(edit_toolbar)
+        self.edit_text = QPlainTextEdit()
+        self.edit_text.setFont(QFont("Consolas", 11))  # 等宽字体，保证代码块/表格对齐
+        edit_layout.addWidget(self.edit_text)
+
+        # 用 Splitter 组合边栏、正文、编辑面板，支持拖动调节宽度
         self.splitter = QSplitter(Qt.Orientation.Horizontal)
         self.splitter.addWidget(self.toc_tree)
         self.splitter.addWidget(content_widget)
-        self.splitter.setStretchFactor(0, 0)
-        self.splitter.setStretchFactor(1, 1)
-        self.splitter.setSizes([140, 660])
+        self.splitter.addWidget(self.edit_panel)
+        self.splitter.setStretchFactor(0, 0)   # 目录：固定
+        self.splitter.setStretchFactor(1, 1)   # 正文：拉伸
+        self.splitter.setStretchFactor(2, 0)   # 编辑面板：固定（可拖拽调宽）
+        self.splitter.setSizes([140, 460, 300])  # 三栏初始宽度
         self.setCentralWidget(self.splitter)
+
+        # 编辑器保存快捷键（仅编辑器聚焦时生效）
+        self.save_shortcut = QShortcut(
+            QKeySequence("Ctrl+S"),
+            self.edit_text,
+            Qt.ShortcutContext.WidgetWithChildrenShortcut,
+        )
+        self.save_shortcut.activated.connect(self.save_edit)
+
+        self.edit_panel.hide()
 
         # 默认隐藏目录
         self.toc_tree.hide()
@@ -293,6 +329,12 @@ class MarkdownViewer(QMainWindow):
         refresh_action.setShortcut("F5")
         refresh_action.triggered.connect(self.reload_file)
         file_menu.addAction(refresh_action)
+
+        # 编辑面板切换入口（顶级菜单项，位于"文件"之后、"窗口"之前）
+        self.edit_action = QAction("编辑", self)
+        self.edit_action.setCheckable(True)  # 面板显示时打勾，作为状态指示
+        self.edit_action.triggered.connect(self.toggle_edit_panel)
+        menubar.addAction(self.edit_action)
 
         # 目录折叠快捷键
         toggle_toc_action = QAction(self)
@@ -629,6 +671,62 @@ class MarkdownViewer(QMainWindow):
         self._quitting = True
         QApplication.quit()
 
+    def toggle_edit_panel(self):
+        """切换右侧编辑面板显隐；显示时加载当前文件原文"""
+        if not self.file_path:
+            QMessageBox.warning(self, "提示", "请先打开文件")
+            return
+        if self.edit_panel.isVisible():
+            self.edit_panel.hide()
+            self.edit_action.setChecked(False)
+        else:
+            self.edit_panel.show()
+            self.edit_action.setChecked(True)
+            self.load_edit_text()
+
+    def load_edit_text(self):
+        """读取当前文件原文到编辑器，记录换行风格"""
+        if not self.file_path or not os.path.isfile(self.file_path):
+            return
+        try:
+            with open(self.file_path, "r", encoding="utf-8", newline="") as f:
+                content = f.read()
+        except Exception as e:
+            self.edit_text.setPlainText(f"[读取失败] {e}")
+            QMessageBox.warning(self, "读取失败", f"无法读取文件: {e}")
+            return
+        # 记录换行风格，保存时保持一致，避免 CRLF 被改写为 LF
+        self._file_newline = "\r\n" if "\r\n" in content else "\n"
+        self._syncing = True
+        try:
+            self.edit_text.setPlainText(content)
+        finally:
+            self._syncing = False
+
+    def save_edit(self):
+        """把编辑器内容原子写回原文件并刷新预览"""
+        if not self.edit_panel.isVisible():
+            return
+        if not self.file_path:
+            return
+        text = self.edit_text.toPlainText()
+        if self._file_newline == "\r\n":
+            text = text.replace("\n", "\r\n")
+        tmp_path = self.file_path + ".tmp"
+        try:
+            with open(tmp_path, "w", encoding="utf-8", newline="") as f:
+                f.write(text)
+            os.replace(tmp_path, self.file_path)  # 原子替换，失败不破坏原文件
+        except Exception as e:
+            if os.path.isfile(tmp_path):
+                try:
+                    os.remove(tmp_path)
+                except OSError:
+                    pass
+            QMessageBox.warning(self, "保存失败", f"写入文件失败: {e}")
+            return
+        self.reload_file()
+
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
             self, "打开 Markdown 文件", "",
@@ -649,6 +747,10 @@ class MarkdownViewer(QMainWindow):
         self.watcher.addPath(self.file_path)
         self.reload_file()
         logger.info("Opened file: %s", self.file_path)
+
+        # 编辑面板可见时，同步编辑器内容到新文件，防止保存写错文件
+        if self.edit_panel.isVisible():
+            self.load_edit_text()
 
     def reload_file(self):
         if not self.file_path or not os.path.isfile(self.file_path):
