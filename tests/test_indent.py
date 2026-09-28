@@ -22,6 +22,10 @@ class TestPreserveIndent(unittest.TestCase):
         content = "```\n\u3000\u3000code line\n```"
         self.assertEqual(MarkdownViewer._preserve_indent(content), content)
 
+    def test_tilde_fence_content_not_replaced(self):
+        content = "~~~\n\u3000\u3000code line\n~~~"
+        self.assertEqual(MarkdownViewer._preserve_indent(content), content)
+
 
 class TestApplyIndent(unittest.TestCase):
     def test_marker_becomes_text_indent(self):

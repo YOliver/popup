@@ -835,6 +835,12 @@ class MarkdownViewer(QMainWindow):
             return '<p style="text-indent:%.1fpx">' % (n * em_px)
         return re.sub(r'<p><i data-indent="(\d+)"></i>', repl, html)
 
+    @staticmethod
+    def _font_em_px(font) -> float:
+        """返回给定字号下一个全角空格的像素宽度（约 1em），缺字形回退 14.0。"""
+        em_px = QFontMetricsF(font).horizontalAdvance('\u3000')
+        return em_px if em_px > 0 else 14.0
+
     def _body_em_px(self) -> float:
         """返回正文字号下一个全角空格的像素宽度（约 1em），用于 text-indent 换算。
 
@@ -843,8 +849,7 @@ class MarkdownViewer(QMainWindow):
         正确的 14px 正文字号；全角空格缺字形时回退 14.0。
         """
         self.text_browser.ensurePolished()
-        em_px = QFontMetricsF(self.text_browser.font()).horizontalAdvance('\u3000')
-        return em_px if em_px > 0 else 14.0
+        return self._font_em_px(self.text_browser.font())
 
     @staticmethod
     def _build_base_url(file_path: str) -> QUrl:

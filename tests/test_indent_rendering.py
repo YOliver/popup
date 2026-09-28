@@ -5,7 +5,7 @@ import unittest
 
 import markdown
 from PySide6.QtWidgets import QApplication
-from PySide6.QtGui import QTextDocument
+from PySide6.QtGui import QTextDocument, QFont
 
 from md_viewer import MarkdownViewer
 
@@ -38,11 +38,21 @@ class TestIndentRendering(unittest.TestCase):
 
     def test_unindented_paragraph_has_no_indent(self):
         doc = self._render("正文", 14.0)
+        found = False
         blk = doc.begin()
         while blk.isValid():
             if blk.text() == "正文":
                 self.assertEqual(blk.blockFormat().textIndent(), 0.0)
+                found = True
             blk = blk.next()
+        self.assertTrue(found)
+
+    def test_font_em_px_reasonable(self):
+        font = QFont()
+        font.setPixelSize(14)
+        em = MarkdownViewer._font_em_px(font)
+        self.assertGreaterEqual(em, 13.0)
+        self.assertLessEqual(em, 15.0)
 
     def test_code_fence_content_preserved(self):
         doc = self._render("```\n\u3000\u3000code line\n```", 14.0)
