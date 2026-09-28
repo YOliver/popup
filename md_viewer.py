@@ -786,6 +786,40 @@ class MarkdownViewer(QMainWindow):
         return '\n'.join(out)
 
     @staticmethod
+    def _preserve_indent(content: str) -> str:
+        """把行首连续 N 个全角空格替换为 <i data-indent="N"></i> 占位标记。
+
+        python-markdown 会剥掉行首空白，Qt 也会剥掉段首全角空格，故在转换前
+        用内联 HTML 占位。跳过代码围栏内部行（<pre><code> 内 Qt 会原样保留
+        前导空格，替换反而会污染代码）。
+        """
+        out = []
+        in_fence = False
+        fence_marker = None
+        fence_re = re.compile(r'^(```+|~~~+)')
+        indent_re = re.compile(r'^(\u3000+)')
+        for line in content.split('\n'):
+            stripped = line.lstrip(' ')
+            m = fence_re.match(stripped)
+            if m:
+                if in_fence and stripped.startswith(fence_marker):
+                    in_fence = False
+                elif not in_fence:
+                    in_fence = True
+                    fence_marker = m.group(1)[:3]
+                out.append(line)
+                continue
+            if in_fence:
+                out.append(line)
+                continue
+            m = indent_re.match(line)
+            if m:
+                out.append('<i data-indent="%d"></i>' % len(m.group(1)) + line[m.end():])
+            else:
+                out.append(line)
+        return '\n'.join(out)
+
+    @staticmethod
     def _build_base_url(file_path: str) -> QUrl:
         """返回 md 文件所在目录的基准 URL，供 QTextBrowser 解析相对路径图片。
 
