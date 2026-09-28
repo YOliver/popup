@@ -309,6 +309,14 @@ class MarkdownViewer(QMainWindow):
 
         self.edit_panel.hide()
 
+        # 双向滚动同步（比例粗同步）
+        self.text_browser.verticalScrollBar().valueChanged.connect(
+            self._sync_preview_to_edit
+        )
+        self.edit_text.verticalScrollBar().valueChanged.connect(
+            self._sync_edit_to_preview
+        )
+
         # 默认隐藏目录
         self.toc_tree.hide()
 
@@ -683,6 +691,7 @@ class MarkdownViewer(QMainWindow):
             self.edit_panel.show()
             self.edit_action.setChecked(True)
             self.load_edit_text()
+            self._sync_preview_to_edit(0)  # 显示时定位到预览当前比例位置
 
     def load_edit_text(self):
         """读取当前文件原文到编辑器，记录换行风格"""
@@ -726,6 +735,36 @@ class MarkdownViewer(QMainWindow):
             QMessageBox.warning(self, "保存失败", f"写入文件失败: {e}")
             return
         self.reload_file()
+
+    def _sync_preview_to_edit(self, value):
+        """预览滚动 → 编辑器滚动条按比例跟随（仅滚动视图，不动光标）。
+
+        value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
+        """
+        if self._syncing:
+            return
+        if not self.edit_panel.isVisible():
+            return
+        edit_sb = self.edit_text.verticalScrollBar()
+        self._syncing = True
+        edit_sb.setValue(
+            self._proportional_value(self.text_browser.verticalScrollBar(), edit_sb)
+        )
+        self._syncing = False
+
+    def _sync_edit_to_preview(self, value):
+        """编辑器滚动 → 预览滚动条按比例跟随。
+
+        value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
+        """
+        if self._syncing:
+            return
+        preview_sb = self.text_browser.verticalScrollBar()
+        self._syncing = True
+        preview_sb.setValue(
+            self._proportional_value(self.edit_text.verticalScrollBar(), preview_sb)
+        )
+        self._syncing = False
 
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -792,10 +831,16 @@ class MarkdownViewer(QMainWindow):
         _t_render = time.perf_counter()
         base_url = self._build_base_url(self.file_path)
         self.text_browser.document().setBaseUrl(base_url)
-        self.text_browser.setHtml(self.wrap_html(html_body))
 
-        # 恢复滚动位置
-        scrollbar.setValue(scroll_pos)
+        # 程序性滚动隔离：setHtml/setValue 会触发 valueChanged，
+        # 用 _syncing 包裹，避免刷新时误触发滚动同步导致闪动
+        self._syncing = True
+        try:
+            self.text_browser.setHtml(self.wrap_html(html_body))
+            # 恢复滚动位置
+            scrollbar.setValue(scroll_pos)
+        finally:
+            self._syncing = False
 
         # 若搜索条开着，刷新搜索状态
         if self.search_bar.isVisible() and self.search_input.text():
