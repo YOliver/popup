@@ -944,6 +944,64 @@ class MarkdownViewer(QMainWindow):
         return '\n'.join(out)
 
     @staticmethod
+    def _inject_anchors(content: str) -> str:
+        """在每个 Markdown 块起始行注入零高锚点 <a id="md-N"></a>，N 为 0-based 源行号。
+
+        锚点插在块标记字符之后（标题 #、列表 -/1.、引用 >）或段落行首全角空格
+        之后，避免破坏 markdown 结构与段首缩进。跳过代码围栏、表格、HTML 块、
+        水平线、缩进代码块。复用 _normalize_list_indent 的围栏跟踪模式。
+        """
+        out = []
+        in_fence = False
+        fence_marker = None
+        fence_re = re.compile(r'^(```+|~~~+)')
+        heading_re = re.compile(r'^(\s{0,3})(#{1,6})\s+(.*)$')
+        list_re = re.compile(r'^(\s*)([-*+]|\d+[.)])\s+(.*)$')
+        quote_re = re.compile(r'^(\s*(?:>\s*)+)(.*)$')
+        fullspace_re = re.compile(r'^(\u3000+)')
+        html_re = re.compile(r'^\s*<')
+        hrule_re = re.compile(r'^\s{0,3}([-*_])\s*(\1\s*){2,}$')
+        for idx, line in enumerate(content.split('\n')):
+            stripped = line.lstrip(' ')
+            m = fence_re.match(stripped)
+            if m:
+                if in_fence and stripped.startswith(fence_marker):
+                    in_fence = False
+                elif not in_fence:
+                    in_fence = True
+                    fence_marker = m.group(1)[:3]
+                out.append(line)
+                continue
+            if in_fence or not stripped or stripped.startswith('|'):
+                out.append(line)
+                continue
+            if html_re.match(line) or hrule_re.match(line):
+                out.append(line)
+                continue
+            anchor = f'<a id="md-{idx}"></a>'
+            mh = heading_re.match(line)
+            if mh:
+                out.append(f'{mh.group(1)}{mh.group(2)} {anchor}{mh.group(3)}')
+                continue
+            ml = list_re.match(line)
+            if ml:
+                out.append(f'{ml.group(1)}{ml.group(2)} {anchor}{ml.group(3)}')
+                continue
+            mq = quote_re.match(line)
+            if mq:
+                out.append(f'{mq.group(1)}{anchor}{mq.group(2)}')
+                continue
+            if len(line) - len(stripped) >= 4:
+                out.append(line)  # 缩进代码块
+                continue
+            mf = fullspace_re.match(line)
+            if mf:
+                out.append(f'{mf.group(1)}{anchor}{line[len(mf.group(1)):]}')
+            else:
+                out.append(f'{anchor}{line}')
+        return '\n'.join(out)
+
+    @staticmethod
     def _preserve_indent(content: str) -> str:
         """把行首连续 N 个全角空格替换为 <i data-indent="N"></i> 占位标记。
 
