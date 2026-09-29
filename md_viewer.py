@@ -968,7 +968,7 @@ class MarkdownViewer(QMainWindow):
 
     @staticmethod
     def _inject_anchors(content: str) -> str:
-        """在每个 Markdown 块起始行注入零高锚点 <a id="md-N"></a>，N 为 0-based 源行号。
+        """在每个 Markdown 块起始行注入零高锚点 <a id="popup-anchor-N"></a>，N 为 0-based 源行号。
 
         锚点插在块标记字符之后（标题 #、列表 -/1.、引用 >）或段落行首全角空格
         之后，避免破坏 markdown 结构与段首缩进。跳过代码围栏、表格、HTML 块、
@@ -1001,7 +1001,7 @@ class MarkdownViewer(QMainWindow):
             if html_re.match(line) or hrule_re.match(line):
                 out.append(line)
                 continue
-            anchor = f'<a id="md-{idx}"></a>'
+            anchor = f'<a id="popup-anchor-{idx}"></a>'
             mh = heading_re.match(line)
             if mh:
                 out.append(f'{mh.group(1)}{mh.group(2)} {anchor}{mh.group(3)}')
@@ -1162,7 +1162,7 @@ class MarkdownViewer(QMainWindow):
 
     @staticmethod
     def _build_anchor_map(doc):
-        """遍历 QTextDocument 找出所有 <a id="md-N"> 锚点，返回 (行号列表, Y 列表)。
+        """遍历 QTextDocument 找出所有 <a id="popup-anchor-N"> 锚点，返回 (行号列表, Y 列表)。
 
         锚点属性附着到紧随其后的字符，通过 fragment 的 anchorNames 检测；
         block 的文档 Y 用 documentLayout().blockBoundingRect(block).y() 取得。
@@ -1174,8 +1174,10 @@ class MarkdownViewer(QMainWindow):
             it = blk.begin()
             while not it.atEnd():
                 for name in it.fragment().charFormat().anchorNames():
-                    if name.startswith("md-"):
-                        found = int(name[3:])
+                    if name.startswith("popup-anchor-"):
+                        suffix = name[len("popup-anchor-"):]
+                        if suffix.isdigit():
+                            found = int(suffix)
                         break
                 if found is not None:
                     break
