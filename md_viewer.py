@@ -764,6 +764,8 @@ class MarkdownViewer(QMainWindow):
                 i = self._nearest_anchor_index(self._anchor_ys, y)
                 line = self._anchor_lines[i]
                 blk = self.edit_text.document().findBlockByNumber(line)
+                if not blk.isValid():
+                    return
                 doc_y = self.edit_text.blockBoundingGeometry(blk).y() + edit_sb.value()
                 edit_sb.setValue(int(doc_y))
             else:
