@@ -57,7 +57,7 @@ pre {
 
 - **为何改 CSS 而非后处理 HTML**：`codehilite` 扩展输出 `<div class="codehilite"><pre>...</pre></div>`，围栏代码块输出 `<pre><code>...</code></pre>`，二者最终都落入 `<pre>` 元素，CSS 选择器 `pre` 一次性覆盖全部代码块，无需触碰渲染管线。
 - **`pre-wrap` vs `pre`**：`pre` 保留空白但不折行（现状）；`pre-wrap` 保留空白且遇边界折行（目标）。`nowrap`/`normal` 会折叠空格、破坏代码排版，不采用。
-- **实测验证要求**：本项目此前经验表明 Qt 富文本的 CSS 子集有限（如 `text-indent` 只认 `px` 不认 `em`）。实现时须**先实测**确认 `white-space: pre-wrap` 在 `QTextBrowser` 中确实生效；若 Qt 6 对该属性支持异常，回退方案为在渲染管线 `_style_blockquotes` 之后新增一步，对 `<pre ...>` 元素注入内联 `style="white-space: pre-wrap;"`（等效但更繁琐，仅作备选）。
+- **实测验证（已完成）**：本项目此前经验表明 Qt 富文本的 CSS 子集有限（如 `text-indent` 只认 `px` 不认 `em`），故本方案在 offscreen 的 `QTextBrowser` 中实测确认。结果：渲染同一段超长代码块（窗口宽 300px），未加属性时水平滚动条 `maximum = 5230`、block 视觉行数 = 1；加 `white-space: pre-wrap` 后 `maximum = 0`、视觉行数 = 20，证明长行真实折行、水平滚动条消失。Qt 6 下该属性生效，无需备选方案。
 - **软折行语义**：折行只发生在显示层，源文本不变，复制/文内搜索（`Ctrl+F`）拿到的仍是原始长行内容。
 
 ### 4.3 数据流
@@ -77,9 +77,12 @@ pre {
 
 ## 6. 测试计划
 
-1. **单元测试**：`wrap_html` 为纯函数，新增 `tests/test_code_wrap.py`，断言 `wrap_html("")` 输出含 `white-space: pre-wrap` 且位于 `pre {` 样式块内。
-2. **手动视觉冒烟**：打开用户截图对应的长句文件，确认代码块长行折行、水平滚动条消失、缩放窗口实时重排、复制与 `Ctrl+F` 搜索仍为原始内容。
-3. **回归**：确认无代码块文档、标题、列表、引用、表格、图片显示均不受影响（本改动只加一条 CSS，风险面极小）。
+1. **offscreen 行为测试**（新增 `tests/test_code_wrap.py`，参照 `test_indent_rendering.py` 的 offscreen 模式）：渲染含超长行的围栏代码块到固定宽度（如 300px）的 `QTextBrowser`，断言：
+   - `horizontalScrollBar().maximum() == 0`（无水平溢出，守护用户核心目标）；
+   - 代码块所在 block 的视觉行数 > 1（长行真实折行，而非被裁剪）。
+2. **单元测试**：`wrap_html` 为纯函数，断言其输出样式表含 `white-space: pre-wrap`（字符串级守卫，防止样式被误删）。
+3. **手动视觉冒烟**：打开用户截图对应的长句文件，确认代码块长行折行、水平滚动条消失、缩放窗口实时重排、复制与 `Ctrl+F` 搜索仍为原始内容。
+4. **回归**：确认无代码块文档、标题、列表、引用、表格、图片显示均不受影响（本改动只加一条 CSS，风险面极小）。
 
 ## 7. 影响分析
 
