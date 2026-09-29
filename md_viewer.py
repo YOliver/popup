@@ -10,6 +10,7 @@ import sys
 import os
 import re
 import time
+import bisect
 import logging
 from logging.handlers import RotatingFileHandler
 import markdown
@@ -1071,6 +1072,12 @@ class MarkdownViewer(QMainWindow):
         """按比例把 src 滚动条当前位置映射为 dst 滚动条的目标值"""
         ratio = src.value() / max(src.maximum(), 1)
         return round(ratio * dst.maximum())
+
+    @staticmethod
+    def _nearest_anchor_index(arr, target):
+        """在非降序数组 arr 中返回最后一个 <= target 的索引；target 小于首元素返回 0。"""
+        idx = bisect.bisect_right(arr, target) - 1
+        return idx if idx >= 0 else 0
 
     @staticmethod
     def _detect_newline(content):
