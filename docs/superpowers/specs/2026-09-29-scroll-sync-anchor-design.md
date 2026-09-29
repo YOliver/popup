@@ -49,10 +49,72 @@
 | 代码围栏开/合行、围栏内行 | 原样保留，不注入 |
 | 空行 | 原样保留 |
 | 表格行（`lstrip` 后以 `\|` 开头） | 原样保留，不注入 |
+| HTML 块（行首 `\s*<`） | 原样保留，不注入 |
+| 水平线（`\s{0,3}` + `-`/`*`/`_` 重复 ≥3） | 原样保留，不注入 |
+| 缩进代码块（4+ 空格半角缩进且非列表/引用/标题的普通行） | 原样保留，不注入 |
 | 标题 `^(\s{0,3})(#{1,6})\s+(.*)$` | `{缩进}{#号} <a id="md-{idx}"></a>{标题文本}` |
-| 列表项 `^(\s{0,3})([-*+]|\d+[.)])\s+(.*)$` | `{缩进}{标记} <a id="md-{idx}"></a>{项文本}` |
-| 引用 `^(\s{0,3})>\s?(.*)$` | `{缩进}> <a id="md-{idx}"></a>{引用文本}` |
+| 列表项 `^(\s*)([-*+]|\d+[.)])\s+(.*)$` | `{缩进}{标记} <a id="md-{idx}"></a>{项文本}`（`\s*` 支持任意级嵌套缩进） |
+| 引用 `^(\s*(?:>\s*)+)(.*)$` | `{全部 > 前缀}<a id="md-{idx}"></a>{引用文本}`（支持 `> >` 多层嵌套） |
 | 普通段落（其余非空行） | 锚点插在行首连续全角空格之后：`{全角空格}<a id="md-{idx}"></a>{正文}`；无全角空格则直接 `{锚点}{行}` |
+
+**完整实现**：
+
+```python
+@staticmethod
+def _inject_anchors(content: str) -> str:
+    out = []
+    in_fence = False
+    fence_marker = None
+    fence_re = re.compile(r'^(```+|~~~+)')
+    heading_re = re.compile(r'^(\s{0,3})(#{1,6})\s+(.*)$')
+    list_re = re.compile(r'^(\s*)([-*+]|\d+[.)])\s+(.*)$')
+    quote_re = re.compile(r'^(\s*(?:>\s*)+)(.*)$')
+    fullspace_re = re.compile(r'^(\u3000+)')
+    html_re = re.compile(r'^\s*<')
+    hrule_re = re.compile(r'^\s{0,3}([-*_])\s*(\1\s*){2,}$')
+    for idx, line in enumerate(content.split('\n')):
+        stripped = line.lstrip(' ')
+        m = fence_re.match(stripped)
+        if m:
+            if in_fence and stripped.startswith(fence_marker):
+                in_fence = False
+            elif not in_fence:
+                in_fence = True
+                fence_marker = m.group(1)[:3]
+            out.append(line)
+            continue
+        if in_fence or not stripped or stripped.startswith('|'):
+            out.append(line)
+            continue
+        if html_re.match(line) or hrule_re.match(line):
+            out.append(line)
+            continue
+        anchor = f'<a id="md-{idx}"></a>'
+        mh = heading_re.match(line)
+        if mh:
+            out.append(f'{mh.group(1)}{mh.group(2)} {anchor}{mh.group(3)}')
+            continue
+        ml = list_re.match(line)
+        if ml:
+            out.append(f'{ml.group(1)}{ml.group(2)} {anchor}{ml.group(3)}')
+            continue
+        mq = quote_re.match(line)
+        if mq:
+            out.append(f'{mq.group(1)}{anchor}{mq.group(2)}')
+            continue
+        indent = len(line) - len(stripped)
+        if indent >= 4:
+            out.append(line)  # 缩进代码块
+            continue
+        mf = fullspace_re.match(line)
+        if mf:
+            out.append(f'{mf.group(1)}{anchor}{line[len(mf.group(1)):]}')
+        else:
+            out.append(f'{anchor}{line}')
+    return '\n'.join(out)
+```
+
+**已实测覆盖的边界**：嵌套列表（4 空格及多级）、嵌套引用（`> >`）、缩进代码块（4 空格）、HTML 块、水平线、表格、围栏、段首全角空格缩进——均不破坏原 markdown 结构。
 
 **与段首缩进的交互**：段落锚点插在全角空格之后，`_preserve_indent` 随后把行首全角空格替换为 `<i data-indent="N"></i>`，得到 `<i data-indent="N"></i><a id="md-N"></a>正文`；`_apply_indent` 的正则 `re.sub(r'<p><i data-indent="(\d+)"></i>', ...)` 仍匹配 `<p>` 后紧跟的 `<i>` 前缀（`<a>` 在其后，不受影响），缩进正常、锚点保留。
 
@@ -182,7 +244,7 @@ Markdown 源文件
 ## 6. 测试计划
 
 1. **纯函数单测（自动化）**：
-   - `_inject_anchors`：标题/列表/引用/段落各类型的锚点注入位置与行号；代码围栏内不注入；表格行不注入；段落全角空格后注入；无全角空格段落行首注入；空行不变。
+   - `_inject_anchors`：标题/列表/引用/段落各类型的锚点注入位置与行号；代码围栏内不注入；表格行不注入；段落全角空格后注入；无全角空格段落行首注入；空行不变；嵌套列表（4 空格及多级）子项锚点保留缩进与嵌套结构；嵌套引用（`> >`）锚点落在最内层；缩进代码块（4 空格半角）不注入；HTML 块、水平线不注入。
    - `_nearest_anchor_index`：正常命中、target 过小返回 0、target 恰在锚点上、target 超出数组末尾返回末索引。调用方以 `if self._anchor_lines:` 保证非空，不测空数组。
 2. **手动视觉冒烟（主要）**——因 `MarkdownViewer` 实例化会注册全局键盘钩子，且 offscreen 缺字体影响 `QPlainTextEdit` 度量，GUI 度量部分以手动验证为主：
    - 打开含多级标题、长段落、代码块、列表、引用的较长 md，滚动预览 → 编辑器首可见行与预览当前段落对齐，滚动到底部偏差不再累积。
