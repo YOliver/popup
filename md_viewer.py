@@ -972,7 +972,8 @@ class MarkdownViewer(QMainWindow):
 
         锚点插在块标记字符之后（标题 #、列表 -/1.、引用 >）或段落行首全角空格
         之后，避免破坏 markdown 结构与段首缩进。跳过代码围栏、表格、HTML 块、
-        水平线、缩进代码块。复用 _normalize_list_indent 的围栏跟踪模式。
+        水平线、setext 标题（下划线及其文本行）、引用式链接定义、缩进代码块。
+        复用 _normalize_list_indent 的围栏跟踪模式。
         """
         out = []
         in_fence = False
@@ -984,7 +985,12 @@ class MarkdownViewer(QMainWindow):
         fullspace_re = re.compile(r'^(\u3000+)')
         html_re = re.compile(r'^\s*<')
         hrule_re = re.compile(r'^\s{0,3}([-*_])\s*(\1\s*){2,}$')
-        for idx, line in enumerate(content.split('\n')):
+        setext_re = re.compile(r'^\s{0,3}=+\s*$')
+        setext2_re = re.compile(r'^\s{0,3}-{1,}\s*$')
+        refdef_re = re.compile(r'^\s{0,3}\[([^\]]+)\]:\s*\S*')
+        lines = content.split('\n')
+        for idx in range(len(lines)):
+            line = lines[idx]
             stripped = line.lstrip(' ')
             m = fence_re.match(stripped)
             if m:
@@ -998,7 +1004,9 @@ class MarkdownViewer(QMainWindow):
             if in_fence or not stripped or stripped.startswith('|'):
                 out.append(line)
                 continue
-            if html_re.match(line) or hrule_re.match(line):
+            if (html_re.match(line) or hrule_re.match(line)
+                    or setext_re.match(line) or setext2_re.match(line)
+                    or refdef_re.match(line)):
                 out.append(line)
                 continue
             anchor = f'<a id="popup-anchor-{idx}"></a>'
@@ -1020,6 +1028,10 @@ class MarkdownViewer(QMainWindow):
             mf = fullspace_re.match(line)
             if mf:
                 out.append(f'{mf.group(1)}{anchor}{line[len(mf.group(1)):]}')
+            elif idx + 1 < len(lines) and (
+                    setext_re.match(lines[idx + 1])
+                    or setext2_re.match(lines[idx + 1])):
+                out.append(line)  # setext 标题文本行，跳过注入
             else:
                 out.append(f'{anchor}{line}')
         return '\n'.join(out)

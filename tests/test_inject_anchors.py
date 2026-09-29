@@ -72,6 +72,14 @@ class TestInjectAnchors(unittest.TestCase):
             '<a id="popup-anchor-0"></a>第一行\n\n<a id="popup-anchor-2"></a>第三行\n',
         )
 
+    def test_setext_underline_not_injected(self):
+        content = "标题\n===\n"
+        self.assertEqual(MarkdownViewer._inject_anchors(content), content)
+
+    def test_reference_link_definition_not_injected(self):
+        content = "[x]: http://a\n"
+        self.assertEqual(MarkdownViewer._inject_anchors(content), content)
+
 
 if __name__ == "__main__":
     unittest.main()
