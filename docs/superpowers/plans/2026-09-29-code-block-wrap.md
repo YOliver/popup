@@ -27,7 +27,7 @@
 - Consumes: `MarkdownViewer.wrap_html(body)`（`md_viewer.py:1150`，静态方法，接收 HTML 片段返回完整 HTML 字符串）。
 - Produces: `tests/test_code_wrap.py` 中 3 个测试用例；`wrap_html` 输出的 `pre` 样式含 `white-space: pre-wrap`。
 
-- [ ] **Step 1: 编写失败测试**
+- [x] **Step 1: 编写失败测试**
 
 新建 `tests/test_code_wrap.py`（注意 `QT_QPA_PLATFORM` 必须在 import Qt 之前设置）：
 
@@ -86,7 +86,7 @@ if __name__ == "__main__":
     unittest.main()
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run: `python -m unittest tests.test_code_wrap -v`
 
@@ -95,7 +95,7 @@ Expected: 3 个测试均 FAIL——
 - `test_long_code_line_wraps_into_multiple_lines`: `AssertionError: 1 not greater than 1`
 - `test_wrap_html_contains_pre_wrap`: `AssertionError: 'white-space: pre-wrap' not found in ...`
 
-- [ ] **Step 3: 实现最小改动**
+- [x] **Step 3: 实现最小改动**
 
 修改 `md_viewer.py:1173-1176`，`pre` 样式块追加 `white-space: pre-wrap;`：
 
@@ -109,7 +109,7 @@ pre {{
 
 （注意：`wrap_html` 用 f-string 包裹 CSS，原文件该块为 `pre {{ ... }}` 双花括号转义形式，仅新增 `white-space: pre-wrap;` 一行，其余保持原样。）
 
-- [ ] **Step 4: 运行测试确认通过**
+- [x] **Step 4: 运行测试确认通过**
 
 Run: `python -m unittest tests.test_code_wrap -v`
 
@@ -119,7 +119,7 @@ Run（全量回归）: `python -m unittest discover -s tests -v`
 
 Expected: `Ran 37 tests ... OK`（34 旧 + 3 新）。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add md_viewer.py tests/test_code_wrap.py
