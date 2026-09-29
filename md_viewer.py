@@ -79,6 +79,9 @@ class MarkdownViewer(QMainWindow):
         self._syncing = False      # 滚动同步防循环标志位
         self._file_newline = "\n"  # 记录原文件换行风格，保存时保持一致
         self._edit_load_ok = True  # 文件内容是否成功加载；读失败时禁止保存
+        # 锚点映射表（源行号 ↔ 预览 Y），滚动同步查表用
+        self._anchor_lines = []
+        self._anchor_ys = []
 
         # 文本搜索状态
         self._count_timer = QTimer(self)
@@ -745,7 +748,7 @@ class MarkdownViewer(QMainWindow):
         self.reload_file()
 
     def _sync_preview_to_edit(self, value):
-        """预览滚动 → 编辑器滚动条按比例跟随（仅滚动视图，不动光标）。
+        """预览滚动 → 编辑器滚动条按锚点映射跟随（仅滚动视图，不动光标）。
 
         value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
         """
@@ -755,13 +758,22 @@ class MarkdownViewer(QMainWindow):
             return
         edit_sb = self.edit_text.verticalScrollBar()
         self._syncing = True
-        edit_sb.setValue(
-            self._proportional_value(self.text_browser.verticalScrollBar(), edit_sb)
-        )
-        self._syncing = False
+        try:
+            if self._anchor_lines:
+                y = self.text_browser.verticalScrollBar().value()
+                i = self._nearest_anchor_index(self._anchor_ys, y)
+                line = self._anchor_lines[i]
+                blk = self.edit_text.document().findBlockByNumber(line)
+                doc_y = self.edit_text.blockBoundingGeometry(blk).y() + edit_sb.value()
+                edit_sb.setValue(int(doc_y))
+            else:
+                edit_sb.setValue(self._proportional_value(
+                    self.text_browser.verticalScrollBar(), edit_sb))
+        finally:
+            self._syncing = False
 
     def _sync_edit_to_preview(self, value):
-        """编辑器滚动 → 预览滚动条按比例跟随。
+        """编辑器滚动 → 预览滚动条按锚点映射跟随。
 
         value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
         """
@@ -769,10 +781,16 @@ class MarkdownViewer(QMainWindow):
             return
         preview_sb = self.text_browser.verticalScrollBar()
         self._syncing = True
-        preview_sb.setValue(
-            self._proportional_value(self.edit_text.verticalScrollBar(), preview_sb)
-        )
-        self._syncing = False
+        try:
+            if self._anchor_lines:
+                line = self.edit_text.firstVisibleBlock().blockNumber()
+                i = self._nearest_anchor_index(self._anchor_lines, line)
+                preview_sb.setValue(self._anchor_ys[i])
+            else:
+                preview_sb.setValue(self._proportional_value(
+                    self.edit_text.verticalScrollBar(), preview_sb))
+        finally:
+            self._syncing = False
 
     def open_file(self):
         path, _ = QFileDialog.getOpenFileName(
@@ -820,6 +838,7 @@ class MarkdownViewer(QMainWindow):
         # 否则 normalize 改动的缩进量会导致围栏对不齐）
         normalized = self._dedent_fenced_blocks(content)
         normalized = self._normalize_list_indent(normalized)
+        normalized = self._inject_anchors(normalized)
         normalized = self._preserve_indent(normalized)
         md = markdown.Markdown(
             extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
@@ -849,6 +868,10 @@ class MarkdownViewer(QMainWindow):
             scrollbar.setValue(scroll_pos)
         finally:
             self._syncing = False
+
+        self._anchor_lines, self._anchor_ys = self._build_anchor_map(
+            self.text_browser.document()
+        )
 
         # 若搜索条开着，刷新搜索状态
         if self.search_bar.isVisible() and self.search_input.text():
