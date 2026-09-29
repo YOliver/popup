@@ -1173,6 +1173,7 @@ code {{
 pre {{
     background: #f4f4f4;
     padding: 12px;
+    white-space: pre-wrap;
 }}
 table.md-quote {{
     border: none;
