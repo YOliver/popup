@@ -5,6 +5,8 @@ import unittest
 
 from PySide6.QtWidgets import QApplication, QTextBrowser
 
+import markdown
+
 from md_viewer import MarkdownViewer
 
 _app = QApplication.instance() or QApplication([])
@@ -34,6 +36,19 @@ def _max_line_count(doc):
     return max_lines
 
 
+def _render_via_pipeline(width=300):
+    source = "```\n" + LONG_LINE + "\n```"
+    md = markdown.Markdown(
+        extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
+    )
+    body = md.convert(source)
+    tb = QTextBrowser()
+    tb.resize(width, 600)
+    tb.setHtml(MarkdownViewer.wrap_html(body))
+    tb.document().setTextWidth(width)
+    return tb
+
+
 class TestCodeBlockWrap(unittest.TestCase):
     def test_long_code_line_has_no_horizontal_scroll(self):
         tb = _render_code_block()
@@ -46,6 +61,15 @@ class TestCodeBlockWrap(unittest.TestCase):
     def test_wrap_html_contains_pre_wrap(self):
         html = MarkdownViewer.wrap_html("<p>正文</p>")
         self.assertIn("white-space: pre-wrap", html)
+
+    def test_fenced_code_block_wraps_via_markdown_pipeline(self):
+        tb = _render_via_pipeline()
+        self.assertEqual(tb.horizontalScrollBar().maximum(), 0)
+        self.assertGreater(_max_line_count(tb.document()), 1)
+
+    def test_soft_wrap_preserves_text_content(self):
+        tb = _render_code_block()
+        self.assertEqual(tb.toPlainText().strip(), LONG_LINE)
 
 
 if __name__ == "__main__":
