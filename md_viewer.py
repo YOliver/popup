@@ -1138,6 +1138,32 @@ class MarkdownViewer(QMainWindow):
         return idx if idx >= 0 else 0
 
     @staticmethod
+    def _build_anchor_map(doc):
+        """遍历 QTextDocument 找出所有 <a id="md-N"> 锚点，返回 (行号列表, Y 列表)。
+
+        锚点属性附着到紧随其后的字符，通过 fragment 的 anchorNames 检测；
+        block 的文档 Y 用 documentLayout().blockBoundingRect(block).y() 取得。
+        """
+        lines, ys = [], []
+        blk = doc.begin()
+        while blk.isValid():
+            found = None
+            it = blk.begin()
+            while not it.atEnd():
+                for name in it.fragment().charFormat().anchorNames():
+                    if name.startswith("md-"):
+                        found = int(name[3:])
+                        break
+                if found is not None:
+                    break
+                it += 1
+            if found is not None:
+                lines.append(found)
+                ys.append(doc.documentLayout().blockBoundingRect(blk).y())
+            blk = blk.next()
+        return lines, ys
+
+    @staticmethod
     def _detect_newline(content):
         """检测文本使用的换行风格：含 \r\n 则视为 CRLF，否则 LF"""
         return "\r\n" if "\r\n" in content else "\n"
