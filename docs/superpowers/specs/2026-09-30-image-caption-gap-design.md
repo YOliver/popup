@@ -24,7 +24,7 @@ Popup 用 python-markdown 把 Markdown 转成 HTML，再经 `wrap_html()` 包裹
 
 ### 目标
 
-- 让「内容仅为一张图片（可带前置锚点）的段落」不受 `body line-height:1.6` 影响，图片紧贴下一段（图注），恢复正常的约 12px 段落间距。
+- 让「内容仅为一或多张图片（可带前置锚点）的段落」不受 `body line-height:1.6` 影响，图片紧贴下一段（图注），恢复正常的约 12px 段落间距。
 - 不影响正文段落的行距（正文仍保持 1.6 倍行距）。
 - 不影响图文混排段落、目录边栏、滚动同步锚点映射等既有功能。
 
@@ -36,7 +36,7 @@ Popup 用 python-markdown 把 Markdown 转成 HTML，再经 `wrap_html()` 包裹
 
 ## 3. 方案概述
 
-在渲染管线中新增一个后处理步骤：对「仅含锚点空标签 + 一个 `<img>` 的 `<p>`」段落注入 `style="line-height:100%"`，用 `line-height:100%` 覆盖继承自 `body` 的 1.6 倍，使图片行高回归图片实际高度。已实测有效且改动最小。
+在渲染管线中新增一个后处理步骤：对「仅含锚点空标签 + 一张或多张 `<img>` 的 `<p>`」段落注入 `style="line-height:100%"`，用 `line-height:100%` 覆盖继承自 `body` 的 1.6 倍，使图片行高回归图片实际高度。已实测有效且改动最小。
 
 ## 4. 详细设计
 
@@ -49,13 +49,14 @@ Popup 用 python-markdown 把 Markdown 转成 HTML，再经 `wrap_html()` 包裹
 ```python
 @staticmethod
 def _fix_image_line_height(html: str) -> str:
-    """给「仅含一张图片（可带前置锚点）的段落」注入 line-height:100%。
+    """给「仅含图片（可带前置锚点）的段落」注入 line-height:100%。
 
     Qt 会把 body 的 line-height 倍数作用于图片行，导致图片行高被放大 1.6 倍，
     图片下方出现大段空白。对纯图片段落覆盖为 100%，恢复图片实际行高。
-    python-markdown 输出格式固定为 <p><a id="popup-anchor-N"></a><img .../></p>。
+    python-markdown 输出格式固定为 <p><a id="popup-anchor-N"></a><img .../></p>，
+    同一段落可能含多张图片，故用 (?:<img [^>]*/>\s*)+ 匹配一张或多张。
     """
-    pattern = r'<p>((?:<a id="popup-anchor-\d+"></a>)*<img [^>]*/>)</p>'
+    pattern = r'<p>((?:<a id="popup-anchor-\d+"></a>)*(?:<img [^>]*/>\s*)+)</p>'
     return re.sub(pattern, r'<p style="line-height:100%">\1</p>', html)
 ```
 
@@ -69,7 +70,7 @@ html_body = self._style_blockquotes(html_body)
 
 ### 4.2 关键细节
 
-- 正则只匹配「段落内容完全由 `<a id="popup-anchor-N"></a>` 空锚点 + 一个 `<img>` 组成」的 `<p>`。普通图文混排段落（img 前后有文字）不会被命中，行为不变。
+- 正则只匹配「段落内容完全由 `<a id="popup-anchor-N"></a>` 空锚点 + 一个或多个 `<img>` 组成」的 `<p>`。普通图文混排段落（img 前后有文字）不会被命中，行为不变。
 - `popup-anchor-N` 是 `_inject_anchors` 注入的固定前缀（见 `md_viewer.py`），正则与之保持一致；`\d+` 匹配编号。
 - 锚点标签在替换中原样保留，`_build_anchor_map` 依赖的 `popup-anchor-N` 属性不受影响，滚动同步锚点映射不破坏。
 - 该步骤放在 `_style_blockquotes` 之前：`_style_blockquotes` 只处理 `<blockquote>`，与 `<p>` 图片段落无交集，顺序无耦合；放在 `_apply_indent` 之后是因为 `_apply_indent` 的占位标记 `<i data-indent>` 不会出现在纯图片段落内，两者互不影响。
@@ -96,8 +97,9 @@ Markdown 源 → _inject_anchors → _preserve_indent → md.convert()
 | 纯图片段落（无锚点） | 注入 `line-height:100%`，图片紧贴图注 |
 | 纯图片段落（带锚点） | 注入 `line-height:100%`，锚点保留 |
 | 图文混排段落（`<p>文字 <img> 文字</p>`） | 不注入，行为不变 |
-| 图片 alt 含特殊字符/中文 | 正则 `[^>]*` 覆盖 alt 属性值，正常匹配 |
-| 连续多张图片（每个各自成段） | 每段各自注入 |
+| 图片 alt 含特殊字符/中文 | 正则 `[^>]*` 覆盖 alt 属性值，正常匹配（alt 中的 `>` 会被 markdown 转义为 `&gt;`，不误切） |
+| 同一段落多张图片（`![](a.png) ![](b.png)`） | 整段一次注入，各图间距均恢复 |
+| 连续多个图片段落 | 每段各自注入 |
 | 滚动同步锚点映射 | `popup-anchor-N` 标签原样保留，映射不受影响 |
 
 ## 6. 测试计划
@@ -107,7 +109,8 @@ Markdown 源 → _inject_anchors → _preserve_indent → md.convert()
 1. 纯图片段落（无锚点）被注入 `line-height:100%`。
 2. 带 `popup-anchor-N` 锚点的图片段落被注入，且锚点标签完整保留。
 3. 图文混排段落不被改动。
-4. 通过完整 `markdown` 管线（`![alt](x.png)` 源文本）产出含 `line-height:100%` 的图片段落。
+4. 同一段落多张图片（`![](a.png) ![](b.png)`）被注入 `line-height:100%`。
+5. 通过完整 `markdown` 管线（`![alt](x.png)` 源文本）产出含 `line-height:100%` 的图片段落。
 
 手动冒烟：构建后打开《失去的二十年》等含图片的文档，确认图片与图注间距恢复正常、目录跳转与滚动同步正常。
 
