@@ -1116,7 +1116,7 @@ class MarkdownViewer(QMainWindow):
 
     @staticmethod
     def _fix_image_line_height(html: str) -> str:
-        """给「仅含图片（可带前置锚点）的段落」注入 line-height:100%。
+        r"""给「仅含图片（可带前置锚点）的段落」注入 line-height:100%。
 
         Qt 会把 body 的 line-height 倍数作用于图片行，导致图片行高被放大 1.6 倍，
         图片下方出现大段空白。对纯图片段落覆盖为 100%，恢复图片实际行高。
