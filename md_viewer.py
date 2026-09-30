@@ -848,6 +848,7 @@ class MarkdownViewer(QMainWindow):
         html_body = md.convert(normalized)
         em_px = self._body_em_px()
         html_body = self._apply_indent(html_body, em_px)
+        html_body = self._fix_image_line_height(html_body)
         html_body = self._style_blockquotes(html_body)
 
         # 更新目录边栏（从 toc 扩展直接拿 slug，避免文本搜索误匹配）
