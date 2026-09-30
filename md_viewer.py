@@ -1115,6 +1115,19 @@ class MarkdownViewer(QMainWindow):
         return QUrl.fromLocalFile(base_dir)
 
     @staticmethod
+    def _fix_image_line_height(html: str) -> str:
+        """给「仅含图片（可带前置锚点）的段落」注入 line-height:100%。
+
+        Qt 会把 body 的 line-height 倍数作用于图片行，导致图片行高被放大 1.6 倍，
+        图片下方出现大段空白。对纯图片段落覆盖为 100%，恢复图片实际行高。
+        python-markdown 输出格式固定为 <p><a id="popup-anchor-N"></a><img .../></p>；
+        同一段落可能含多张图片，nl2br 扩展会把段落内软换行转成 <br />，
+        故用 (?:<img [^>]*/>\s*(?:<br />\s*)?)+ 匹配一张或多张图片（其间可夹 <br />）。
+        """
+        pattern = r'<p>((?:<a id="popup-anchor-\d+"></a>)*(?:<img [^>]*/>\s*(?:<br />\s*)?)+)</p>'
+        return re.sub(pattern, r'<p style="line-height:100%">\1</p>', html)
+
+    @staticmethod
     def _style_blockquotes(html: str) -> str:
         """把 blockquote 转为单列表格，使 Qt 能渲染整块背景 + 左竖线。
 
