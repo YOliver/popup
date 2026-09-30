@@ -48,6 +48,16 @@ class TestFixImageLineHeight(unittest.TestCase):
             out,
         )
 
+    def test_indented_image_paragraph_merges_style(self):
+        html = '<p style="text-indent:28.0px"><a id="popup-anchor-0"></a><img alt="" src="a.png" /></p>'
+        out = MarkdownViewer._fix_image_line_height(html)
+        self.assertIn('<p style="text-indent:28.0px;line-height:100%">', out)
+        self.assertIn('<a id="popup-anchor-0"></a>', out)
+
+    def test_anchor_only_without_image_unchanged(self):
+        html = '<p><a id="popup-anchor-1"></a></p>'
+        self.assertEqual(MarkdownViewer._fix_image_line_height(html), html)
+
 
 if __name__ == "__main__":
     unittest.main()

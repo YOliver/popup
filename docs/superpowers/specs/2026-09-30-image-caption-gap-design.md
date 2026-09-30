@@ -1,7 +1,7 @@
 # 图片与图注间距过大 — 设计文档
 
 - 日期：2026-09-30
-- 状态：待实现
+- 状态：已实现
 - 关联版本：v1.7.1
 
 ## 1. 背景与问题
@@ -98,17 +98,20 @@ Markdown 源 → _inject_anchors → _preserve_indent → md.convert()
 |------|---------|
 | 纯图片段落（无锚点） | 注入 `line-height:100%`，图片紧贴图注 |
 | 纯图片段落（带锚点） | 注入 `line-height:100%`，锚点保留 |
+| 带段首缩进的图片段落（`_apply_indent` 注入 `text-indent`） | 注入并合并为 `text-indent:...;line-height:100%` |
 | 图文混排段落（`<p>文字 <img> 文字</p>`） | 不注入，行为不变 |
 | 图片 alt 含特殊字符/中文 | 正则 `[^>]*` 覆盖 alt 属性值，正常匹配（alt 中的 `>` 会被 markdown 转义为 `&gt;`，不误切） |
 | 同一段落多张图片（`![](a.png) ![](b.png)`） | 整段一次注入，各图间距均恢复 |
 | 软换行多张图片（`![](a.png)` 换行 `![](b.png)`，nl2br 生成 `<br />`） | 整段一次注入，各图间距均恢复 |
 | 连续多个图片段落 | 每段各自注入 |
 | 列表项内图片（`<li><img/></li>`） | 不注入（非目标） |
+| 图片被链接包裹（`[![alt](src)](url)`） | 不注入（已知限制，保留原间距） |
+| 图片与图注无空行同段（`![](x.png)` 换行 `*图注*`，nl2br 生成 `<br />`） | 不注入（非目标） |
 | 滚动同步锚点映射 | `popup-anchor-N` 标签原样保留，映射不受影响 |
 
 ## 6. 测试计划
 
-在 `tests/` 新增 `test_image_line_height.py`（unittest + offscreen，纯字符串断言，不依赖 offscreen 的布局度量，可稳定运行）：
+在 `tests/` 新增 `test_image_line_height.py`（unittest，纯字符串断言，无需 QApplication/offscreen，可稳定运行）：
 
 1. 纯图片段落（无锚点）被注入 `line-height:100%`。
 2. 带 `popup-anchor-N` 锚点的图片段落被注入，且锚点标签完整保留。

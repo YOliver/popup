@@ -1124,9 +1124,21 @@ class MarkdownViewer(QMainWindow):
         python-markdown 输出格式固定为 <p><a id="popup-anchor-N"></a><img .../></p>；
         同一段落可能含多张图片，nl2br 扩展会把段落内软换行转成 <br />，
         故用 (?:<img [^>]*/>\s*(?:<br />\s*)?)+ 匹配一张或多张图片（其间可夹 <br />）。
+        段落可能已带 style（如 _apply_indent 注入的 text-indent），需合并而非覆盖。
         """
-        pattern = r'<p>((?:<a id="popup-anchor-\d+"></a>)*(?:<img [^>]*/>\s*(?:<br />\s*)?)+)</p>'
-        return re.sub(pattern, r'<p style="line-height:100%">\1</p>', html)
+        pattern = (
+            r'<p(?: style="([^"]*)")?>'
+            r'((?:<a id="popup-anchor-\d+"></a>)*(?:<img [^>]*/>\s*(?:<br />\s*)?)+)</p>'
+        )
+
+        def repl(m):
+            existing = m.group(1)
+            content = m.group(2)
+            if existing:
+                return f'<p style="{existing.rstrip(";")};line-height:100%">{content}</p>'
+            return f'<p style="line-height:100%">{content}</p>'
+
+        return re.sub(pattern, repl, html)
 
     @staticmethod
     def _style_blockquotes(html: str) -> str:
