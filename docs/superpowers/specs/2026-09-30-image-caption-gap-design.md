@@ -33,6 +33,7 @@ Popup 用 python-markdown 把 Markdown 转成 HTML，再经 `wrap_html()` 包裹
 - 不改动全局 `line-height`。
 - 不做图片自动裁剪、等比缩放、居中、点击放大等增强。
 - 不处理「图片 + 文字在同一段落内」的行距（Qt 对这类行的处理本就复杂，本次问题仅出现在纯图片段落）。
+- 不处理列表项内的图片（`<li><img …/></li>` 不在 `<p>` 内，且列表内图片在本书笔记场景中罕见，YAGNI）。
 
 ## 3. 方案概述
 
@@ -53,10 +54,11 @@ def _fix_image_line_height(html: str) -> str:
 
     Qt 会把 body 的 line-height 倍数作用于图片行，导致图片行高被放大 1.6 倍，
     图片下方出现大段空白。对纯图片段落覆盖为 100%，恢复图片实际行高。
-    python-markdown 输出格式固定为 <p><a id="popup-anchor-N"></a><img .../></p>，
-    同一段落可能含多张图片，故用 (?:<img [^>]*/>\s*)+ 匹配一张或多张。
+    python-markdown 输出格式固定为 <p><a id="popup-anchor-N"></a><img .../></p>；
+    同一段落可能含多张图片，nl2br 扩展会把段落内软换行转成 <br />，
+    故用 (?:<img [^>]*/>\s*(?:<br />\s*)?)+ 匹配一张或多张图片（其间可夹 <br />）。
     """
-    pattern = r'<p>((?:<a id="popup-anchor-\d+"></a>)*(?:<img [^>]*/>\s*)+)</p>'
+    pattern = r'<p>((?:<a id="popup-anchor-\d+"></a>)*(?:<img [^>]*/>\s*(?:<br />\s*)?)+)</p>'
     return re.sub(pattern, r'<p style="line-height:100%">\1</p>', html)
 ```
 
@@ -99,7 +101,9 @@ Markdown 源 → _inject_anchors → _preserve_indent → md.convert()
 | 图文混排段落（`<p>文字 <img> 文字</p>`） | 不注入，行为不变 |
 | 图片 alt 含特殊字符/中文 | 正则 `[^>]*` 覆盖 alt 属性值，正常匹配（alt 中的 `>` 会被 markdown 转义为 `&gt;`，不误切） |
 | 同一段落多张图片（`![](a.png) ![](b.png)`） | 整段一次注入，各图间距均恢复 |
+| 软换行多张图片（`![](a.png)` 换行 `![](b.png)`，nl2br 生成 `<br />`） | 整段一次注入，各图间距均恢复 |
 | 连续多个图片段落 | 每段各自注入 |
+| 列表项内图片（`<li><img/></li>`） | 不注入（非目标） |
 | 滚动同步锚点映射 | `popup-anchor-N` 标签原样保留，映射不受影响 |
 
 ## 6. 测试计划
@@ -110,7 +114,8 @@ Markdown 源 → _inject_anchors → _preserve_indent → md.convert()
 2. 带 `popup-anchor-N` 锚点的图片段落被注入，且锚点标签完整保留。
 3. 图文混排段落不被改动。
 4. 同一段落多张图片（`![](a.png) ![](b.png)`）被注入 `line-height:100%`。
-5. 通过完整 `markdown` 管线（`![alt](x.png)` 源文本）产出含 `line-height:100%` 的图片段落。
+5. 软换行多张图片（nl2br 生成 `<br />`）被注入 `line-height:100%`。
+6. 通过完整 `markdown` 管线（`![alt](x.png)` 源文本）产出含 `line-height:100%` 的图片段落。
 
 手动冒烟：构建后打开《失去的二十年》等含图片的文档，确认图片与图注间距恢复正常、目录跳转与滚动同步正常。
 
