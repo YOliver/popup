@@ -1434,6 +1434,7 @@ td.md-quote-cell {{
 }}
 td.md-quote-cell p {{
     background-color: #e8e8e8;
+    margin: 0;
 }}
 table {{
     border-collapse: collapse;

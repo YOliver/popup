@@ -50,6 +50,27 @@ class TestQuoteRendering(unittest.TestCase):
             blk = blk.next()
         self.assertTrue(found)
 
+    def test_quote_paragraphs_have_zero_margin(self):
+        md = markdown.Markdown(
+            extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
+        )
+        body = md.convert("> para one\n>\n> para two")
+        body = MarkdownViewer._style_blockquotes(body)
+        html = MarkdownViewer.wrap_html(body)
+
+        doc = QTextDocument()
+        doc.setHtml(html)
+
+        margins = []
+        blk = doc.begin()
+        while blk.isValid():
+            if blk.text() in ("para one", "para two"):
+                fmt = blk.blockFormat()
+                margins.append((fmt.topMargin(), fmt.bottomMargin()))
+            blk = blk.next()
+
+        self.assertEqual(margins, [(0.0, 0.0), (0.0, 0.0)])
+
     def test_table_inside_quote_not_affected(self):
         html_in = ("<blockquote><p>引用文字</p>"
                    "<table><tr><td>单元格</td></tr></table></blockquote>")
