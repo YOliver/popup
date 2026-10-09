@@ -100,6 +100,17 @@ class TestQuoteRendering(unittest.TestCase):
         self.assertEqual(inner.topBorder(), 1.0)
         self.assertEqual(inner.bottomBorder(), 1.0)
 
+    def test_strip_trailing_br(self):
+        self.assertEqual(
+            MarkdownViewer._strip_trailing_br("<p>文字<br /></p>"),
+            "<p>文字</p>",
+        )
+        # 段内换行的 br 不受影响
+        self.assertEqual(
+            MarkdownViewer._strip_trailing_br("<p>行1<br />\n行2</p>"),
+            "<p>行1<br />\n行2</p>",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

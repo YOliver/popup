@@ -940,6 +940,7 @@ class MarkdownViewer(QMainWindow):
         html_body = self._apply_indent(html_body, em_px)
         html_body = self._fix_image_line_height(html_body)
         html_body = self._style_blockquotes(html_body)
+        html_body = self._strip_trailing_br(html_body)
 
         # 更新目录边栏（从 toc 扩展直接拿 slug，避免文本搜索误匹配）
         self.update_toc(getattr(md, 'toc_tokens', []))
@@ -1247,6 +1248,15 @@ class MarkdownViewer(QMainWindow):
         )
         html = html.replace("</blockquote>", "</td></tr></table>")
         return html
+
+    @staticmethod
+    def _strip_trailing_br(html: str) -> str:
+        """删除段落末尾的悬空 <br />。
+
+        引用块末尾的空引用行经 nl2br 会转成段落末尾的 <br />，Qt 渲染为
+        末尾空行盒（带背景的空灰条）。正常段落末尾本无 <br />，删除无副作用。
+        """
+        return re.sub(r'<br />\s*</p>', '</p>', html)
 
     def on_file_changed(self, path):
         """文件变化回调，使用延迟刷新"""
