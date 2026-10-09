@@ -454,6 +454,7 @@ class MarkdownViewer(QMainWindow):
         self.pin_btn = QToolButton(self)
         self.pin_btn.setIcon(_build_pin_icon())
         self.pin_btn.setCheckable(True)
+        # 必须在 toggled.connect 之前 setChecked，否则构造期会误触发 toggle_always_on_top 去调用尚未可用的 winId()
         self.pin_btn.setChecked(self._always_on_top)
         self.pin_btn.setToolTip("取消置顶" if self._always_on_top else "窗口置顶")
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
