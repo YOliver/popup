@@ -1,5 +1,7 @@
 import unittest
 
+import markdown
+
 from md_viewer import MarkdownViewer
 
 
@@ -88,6 +90,15 @@ class TestInjectAnchors(unittest.TestCase):
         self.assertEqual(lines[1], ">")       # 空引用行不注锚，原样保留
         self.assertEqual(lines[2], ">　")     # 仅全角空格的引用行也不注锚
         self.assertIn("popup-anchor-3", lines[3])
+
+    def test_inject_then_convert_keeps_two_paragraphs(self):
+        src = "> para one\n>\n> para two"
+        injected = MarkdownViewer._inject_anchors(src)
+        md = markdown.Markdown(
+            extensions=["tables", "fenced_code", "codehilite", "toc", "nl2br"]
+        )
+        body = md.convert(injected)
+        self.assertEqual(body.count("<p>"), 2)
 
 
 if __name__ == "__main__":
