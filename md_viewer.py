@@ -692,9 +692,9 @@ class MarkdownViewer(QMainWindow):
         self.update_match_count()
 
     def _handle_hotkey_file(self, path):
-        """全局热键回调：加载文件，如果窗口隐藏则恢复显示。"""
+        """全局热键回调：加载文件，如果窗口隐藏或最小化则恢复显示。"""
         self.load_file(path)
-        if self.isHidden():
+        if self.isHidden() or self.isMinimized():
             self.restore_window()
 
     def init_tray(self):
@@ -740,10 +740,10 @@ class MarkdownViewer(QMainWindow):
         self._window_geometry = self.geometry()
 
     def restore_window(self):
-        """从托盘恢复窗口，回到原位置和大小。"""
+        """从托盘或最小化状态恢复窗口，回到原位置和大小。"""
         if self._window_geometry is not None:
             self.setGeometry(self._window_geometry)
-        self.show()
+        self.showNormal()
         self.raise_()
         self.activateWindow()
 
