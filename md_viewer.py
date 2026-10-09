@@ -14,6 +14,8 @@ import bisect
 import logging
 from logging.handlers import RotatingFileHandler
 import markdown
+import ctypes
+from ctypes import wintypes
 from version import VERSION
 from global_hotkey import GlobalHotkey
 
@@ -52,7 +54,7 @@ from PySide6.QtGui import (
     QShortcut, QKeySequence, QFont, QPainter, QPixmap
 )
 from PySide6.QtSvg import QSvgRenderer
-from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl, QByteArray, QRectF
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl, QByteArray, QRectF, QSettings
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
              (time.perf_counter() - _startup_time) * 1000)
@@ -92,6 +94,21 @@ def _build_pin_icon() -> QIcon:
     return icon
 
 
+# ---- Win32 置顶切换 ----
+HWND_TOPMOST = -1
+HWND_NOTOPMOST = -2
+SWP_NOMOVE = 0x0002
+SWP_NOSIZE = 0x0001
+SWP_NOACTIVATE = 0x0010
+
+_user32 = ctypes.windll.user32
+_user32.SetWindowPos.argtypes = (
+    wintypes.HWND, wintypes.HWND, ctypes.c_int, ctypes.c_int,
+    ctypes.c_int, ctypes.c_int, wintypes.UINT,
+)
+_user32.SetWindowPos.restype = wintypes.BOOL
+
+
 class MarkdownViewer(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -124,6 +141,9 @@ class MarkdownViewer(QMainWindow):
         self._count_timer.setInterval(150)
         self._count_timer.timeout.connect(lambda: self.update_match_count())
 
+        # 置顶状态（首次默认置顶，与既有行为一致）
+        self._always_on_top = QSettings().value("window/always_on_top", True, type=bool)
+
         self.init_ui()
         self.init_tray()
 
@@ -133,9 +153,6 @@ class MarkdownViewer(QMainWindow):
 
     def init_ui(self):
         _t = time.perf_counter()
-
-        # 窗口置顶（先设置 flags 再设置其他属性，避免 show() 时重建窗口）
-        self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
 
         self.setWindowTitle(f"Popup v{VERSION}")
         self.setGeometry(100, 100, 800, 600)
@@ -433,6 +450,29 @@ class MarkdownViewer(QMainWindow):
             action.triggered.connect(lambda checked, p=doc_path: self.open_help_doc(p))
             help_menu.addAction(action)
 
+        # 图钉按钮：切换窗口置顶（放在菜单栏最右侧）
+        self.pin_btn = QToolButton(self)
+        self.pin_btn.setIcon(_build_pin_icon())
+        self.pin_btn.setCheckable(True)
+        self.pin_btn.setChecked(self._always_on_top)
+        self.pin_btn.setToolTip("取消置顶" if self._always_on_top else "窗口置顶")
+        self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.pin_btn.setStyleSheet("""
+            QToolButton {
+                border: none;
+                background: transparent;
+                padding: 2px 6px;
+            }
+            QToolButton:hover {
+                background: #e8e8e8;
+            }
+            QToolButton:checked {
+                background: #e0e0e0;
+            }
+        """)
+        self.pin_btn.toggled.connect(self.toggle_always_on_top)
+        menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
+
         logger.debug("init_ui: %.0fms (%.0fms total)",
                      (time.perf_counter() - _t) * 1000,
                      (time.perf_counter() - _startup_time) * 1000)
@@ -713,6 +753,28 @@ class MarkdownViewer(QMainWindow):
         self.show()
         self.raise_()
         self.activateWindow()
+
+    def showEvent(self, event):
+        """首次显示及每次从托盘恢复时，幂等应用置顶状态。"""
+        super().showEvent(event)
+        self._apply_always_on_top(self._always_on_top)
+
+    def toggle_always_on_top(self, checked):
+        """切换窗口置顶状态并持久化。"""
+        self._always_on_top = checked
+        self._apply_always_on_top(checked)
+        self.pin_btn.setToolTip("取消置顶" if checked else "窗口置顶")
+        QSettings().setValue("window/always_on_top", checked)
+
+    def _apply_always_on_top(self, on):
+        """用 Win32 SetWindowPos 直接改 HWND 的 topmost 属性，不重建窗口。"""
+        hwnd = int(self.winId())
+        _user32.SetWindowPos(
+            hwnd,
+            HWND_TOPMOST if on else HWND_NOTOPMOST,
+            0, 0, 0, 0,
+            SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE,
+        )
 
     def quit_app(self):
         """真正退出应用：清除托盘图标后退出进程。"""
@@ -1407,6 +1469,8 @@ a {{
 def main():
     _t = time.perf_counter()
     app = QApplication(sys.argv)
+    app.setOrganizationName("Popup")
+    app.setApplicationName("Popup")
     logger.debug("QApplication created: %.0fms (%.0fms total)",
                  (time.perf_counter() - _t) * 1000,
                  (time.perf_counter() - _startup_time) * 1000)
