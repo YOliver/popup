@@ -78,20 +78,13 @@ Expected: FAIL，报 `ImportError: cannot import name 'PIN_SVG_ON' from 'md_view
 
 在 `md_viewer.py` 顶部导入区做三处改动：
 
-(1) 标准库区（`import markdown` 之后、`from version import VERSION` 附近）加：
+(1) `from PySide6.QtCore import ...` 行追加 `QByteArray, QRectF`，最终为：
 
 ```python
-import ctypes
-from ctypes import wintypes
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl, QByteArray, QRectF
 ```
 
-(2) `from PySide6.QtCore import ...` 行追加 `QByteArray, QRectF, QSettings`，最终为：
-
-```python
-from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl, QByteArray, QRectF, QSettings
-```
-
-(3) `from PySide6.QtGui import ...` 行追加 `QPainter, QPixmap`，最终为：
+(2) `from PySide6.QtGui import ...` 行追加 `QPainter, QPixmap`，最终为：
 
 ```python
 from PySide6.QtGui import (
@@ -100,7 +93,7 @@ from PySide6.QtGui import (
 )
 ```
 
-(4) 在 QtGui 导入之后新增一行：
+(3) 在 QtGui 导入之后新增一行：
 
 ```python
 from PySide6.QtSvg import QSvgRenderer
@@ -172,9 +165,24 @@ git commit -m "feat: 新增图钉图标渲染辅助函数与单元测试"
 - Consumes: `_build_pin_icon()`（Task 1）
 - Produces: 实例属性 `self._always_on_top: bool`、`self.pin_btn: QToolButton`；方法 `showEvent(self, event)`、`toggle_always_on_top(self, checked)`、`_apply_always_on_top(self, on)`
 
-- [ ] **Step 1: 新增 Win32 常量与函数签名**
+- [ ] **Step 1: 新增 ctypes/QSettings 导入与 Win32 常量**
 
-在 Task 1 插入的 `_build_pin_icon` 函数**之后**、`class MarkdownViewer` **之前**插入：
+先在 `md_viewer.py` 顶部导入区补两处：
+
+(1) 标准库区（`import markdown` 之后、`from version import VERSION` 附近）加：
+
+```python
+import ctypes
+from ctypes import wintypes
+```
+
+(2) `from PySide6.QtCore import ...` 行追加 `QSettings`，最终为：
+
+```python
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl, QByteArray, QRectF, QSettings
+```
+
+然后在 Task 1 插入的 `_build_pin_icon` 函数**之后**、`class MarkdownViewer` **之前**插入：
 
 ```python
 # ---- Win32 置顶切换 ----
