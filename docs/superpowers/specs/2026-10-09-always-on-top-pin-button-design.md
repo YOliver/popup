@@ -24,9 +24,10 @@ Popup 当前通过 `setWindowFlags(... | Qt.WindowType.WindowStaysOnTopHint)` �
 
 图钉按钮放在**菜单栏最右侧**，通过 `QMenuBar.setCornerWidget(btn, Qt.Corner.TopRightCorner)` 实现，不破坏系统原生标题栏。
 
-置顶切换采用 **Win32 `SetWindowPos`** 直接改 HWND 的 topmost 属性：
-- 运行时切换：`SetWindowPos` 平滑切换，**不重建窗口、无闪烁、不动几何**。
-- 首次启动：仍在 `show()` 之前用 `setWindowFlags` 设置初始置顶（此时 `winId()` 尚不可用，无法用 `SetWindowPos`）。
+置顶切换统一采用 **Win32 `SetWindowPos`** 直接改 HWND 的 topmost 属性，作为置顶状态的**单一来源**：
+- **不再使用 `Qt.WindowStaysOnTopHint` flag**，Qt 的窗口 flags 与实际 HWND 状态始终一致，任何 hide/show（缩托盘/恢复）都不会破坏置顶状态。
+- 切换时 `SetWindowPos` 平滑生效，**不重建窗口、无闪烁、不动几何**。
+- 初始状态在首次 `showEvent` 中通过 `SetWindowPos` 应用（此时 `winId()` 已可用）。
 
 ### 3.2 置顶切换实现（Win32）
 
@@ -86,7 +87,8 @@ def _svg_to_pixmap(svg: str, size: int = 16) -> QPixmap:
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
-    renderer.render(painter)
+    # 必须显式指定目标矩形，否则按 SVG 固有尺寸（24x24）渲染到 16x16 会被裁剪
+    renderer.render(painter, QRectF(0, 0, size, size))
     painter.end()
     return pixmap
 
@@ -114,7 +116,7 @@ app.setApplicationName("Popup")
 **新增导入**
 
 - `PySide6.QtWidgets`：追加 `QToolButton`
-- `PySide6.QtCore`：追加 `QByteArray`
+- `PySide6.QtCore`：追加 `QByteArray, QRectF`
 - `PySide6.QtGui`：追加 `QPainter, QPixmap`
 - `PySide6.QtSvg`：追加 `QSvgRenderer`
 - 标准库：`import ctypes`、`from ctypes import wintypes`
@@ -140,12 +142,7 @@ self._always_on_top = QSettings().value("window/always_on_top", True, type=bool)
 
 **`init_ui()` 修改**
 
-1. 置顶标志改为条件设置（替换 `md_viewer.py:103` 的硬编码）：
-
-```python
-if self._always_on_top:
-    self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)
-```
+1. **删除** `md_viewer.py:103` 的硬编码置顶行（`self.setWindowFlags(self.windowFlags() | Qt.WindowType.WindowStaysOnTopHint)` 及其注释）。置顶不再依赖 Qt flag，完全交给 `SetWindowPos`。
 
 2. 菜单栏创建完成后（`menubar` 定义之后、`init_ui` 返回前）创建图钉按钮：
 
@@ -154,7 +151,7 @@ self.pin_btn = QToolButton(self)
 self.pin_btn.setIcon(_build_pin_icon())
 self.pin_btn.setCheckable(True)
 self.pin_btn.setChecked(self._always_on_top)
-self.pin_btn.setToolTip("窗口置顶")
+self.pin_btn.setToolTip("取消置顶" if self._always_on_top else "窗口置顶")
 self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
 self.pin_btn.toggled.connect(self.toggle_always_on_top)
 menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
@@ -164,12 +161,17 @@ menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
 
 **新增方法**
 
-1. **`toggle_always_on_top(self, checked: bool)`**：
+1. **`showEvent(self, event)`（重写）**：
+   - 调用 `super().showEvent(event)`
+   - 幂等应用当前状态：`self._apply_always_on_top(self._always_on_top)`。首次显示及每次从托盘恢复都会执行，确保 HWND 状态与 `_always_on_top` 始终一致。
+
+2. **`toggle_always_on_top(self, checked: bool)`**：
    - `self._always_on_top = checked`
    - 调用 `self._apply_always_on_top(checked)`
+   - 更新 tooltip：`self.pin_btn.setToolTip("取消置顶" if checked else "窗口置顶")`
    - `QSettings().setValue("window/always_on_top", checked)` 持久化
 
-2. **`_apply_always_on_top(self, on: bool)`**：
+3. **`_apply_always_on_top(self, on: bool)`**：
    - `hwnd = int(self.winId())`
    - `_user32.SetWindowPos(hwnd, HWND_TOPMOST if on else HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE)`
 
@@ -180,15 +182,17 @@ menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
 ### 3.6 调用关系
 
 ```
-首次启动: __init__ 读 QSettings ──→ init_ui 条件 setWindowFlags（show 前）
+首次启动: __init__ 读 QSettings ──→ showEvent → _apply_always_on_top → SetWindowPos(初始态)
 点击图钉: toggled(checked) ──→ toggle_always_on_top
                               ├─ _apply_always_on_top → SetWindowPos(HWND_TOPMOST/NOTOPMOST)
+                              ├─ 更新 tooltip
                               └─ QSettings.setValue 持久化
+从托盘恢复: showEvent ──→ _apply_always_on_top（幂等，保持状态不变）
 ```
 
 ## 4. 异常处理
 
-- **`winId()` 不可用**：`_apply_always_on_top` 仅在用户点击按钮时调用，此时窗口必已 `show()`、HWND 有效；首次启动走 `setWindowFlags` 分支，不依赖 `winId()`。
+- **`winId()` 可用性**：`_apply_always_on_top` 仅在 `showEvent`（首次显示、从托盘恢复）或用户点击按钮时调用，此时窗口已显示、HWND 有效。
 - **SetWindowPos 失败**：返回值为 0，静默忽略（置顶状态以按钮显示为准，下次点击可重试），不阻断主流程。
 - **SVG 渲染失败 / QtSvg 缺失**：`QSvgRenderer` 无法加载时 `pixmap` 为空，按钮显示空白图标但功能不受影响（可用 tooltip 兜底）。PySide6 完整安装含 QtSvg，正常场景不会触发。
 - **QSettings 读不到值**：`value(key, True, type=bool)` 的默认值兜底，首次运行正常置顶。
@@ -207,6 +211,7 @@ menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
 - [ ] 再次点击图钉 → 窗口恢复置顶，图标变深色
 - [ ] 切换过程中窗口**不闪烁、不跳动、位置大小不变**
 - [ ] 切到非置顶后，最小化缩托盘、双击托盘恢复、点 X 缩托盘等既有行为正常
+- [ ] 非置顶态下点 X 缩托盘 → 双击恢复，窗口**仍为非置顶**（不被意外重新置顶）
 - [ ] 关闭退出后重启 → 恢复到上次的非置顶/置顶状态
 - [ ] 置顶态下全局空格打开文件、拖拽打开、目录跳转等功能不受影响
 
