@@ -49,12 +49,47 @@ from PySide6.QtWidgets import (
 )
 from PySide6.QtGui import (
     QAction, QIcon, QTextDocument, QTextCursor, QFontMetricsF,
-    QShortcut, QKeySequence, QFont
+    QShortcut, QKeySequence, QFont, QPainter, QPixmap
 )
-from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl
+from PySide6.QtSvg import QSvgRenderer
+from PySide6.QtCore import Qt, QFileSystemWatcher, QTimer, QEvent, QUrl, QByteArray, QRectF
 logger.debug("Import PySide6: +%.0fms (%.0fms total)",
              (time.perf_counter() - _t) * 1000,
              (time.perf_counter() - _startup_time) * 1000)
+
+# ---- 图钉（置顶开关）图标 ----
+PIN_SVG_ON = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    '<path fill="#2c2c2c" d="M16 9l-3-3V2h1V0H2v2h1v4L0 9v2h6v4'
+    'c0 1 1 1 1 2h2c0-1 1-1 1-2v-4h6V9z"/>'
+    '</svg>'
+)
+PIN_SVG_OFF = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">'
+    '<path fill="#9a9a9a" d="M16 9l-3-3V2h1V0H2v2h1v4L0 9v2h6v4'
+    'c0 1 1 1 1 2h2c0-1 1-1 1-2v-4h6V9z"/>'
+    '</svg>'
+)
+
+
+def _svg_to_pixmap(svg: str, size: int = 16) -> QPixmap:
+    """把内嵌 SVG 字符串渲染成 size×size 的透明底 QPixmap。"""
+    renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    # 显式指定目标矩形，否则按 SVG 固有尺寸（24x24）渲染到 16x16 会被裁剪
+    renderer.render(painter, QRectF(0, 0, size, size))
+    painter.end()
+    return pixmap
+
+
+def _build_pin_icon() -> QIcon:
+    """构建图钉 QIcon：Off=浅色（松开）、On=深色（钉住）。"""
+    icon = QIcon()
+    icon.addPixmap(_svg_to_pixmap(PIN_SVG_OFF), QIcon.Mode.Normal, QIcon.State.Off)
+    icon.addPixmap(_svg_to_pixmap(PIN_SVG_ON), QIcon.Mode.Normal, QIcon.State.On)
+    return icon
 
 
 class MarkdownViewer(QMainWindow):
