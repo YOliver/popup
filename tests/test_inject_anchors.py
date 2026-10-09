@@ -80,6 +80,15 @@ class TestInjectAnchors(unittest.TestCase):
         content = "[x]: http://a\n"
         self.assertEqual(MarkdownViewer._inject_anchors(content), content)
 
+    def test_blank_quote_lines_not_anchored(self):
+        src = "> 文字\n>\n>　\n> 更多"
+        out = MarkdownViewer._inject_anchors(src)
+        lines = out.split("\n")
+        self.assertIn("popup-anchor-0", lines[0])
+        self.assertEqual(lines[1], ">")       # 空引用行不注锚，原样保留
+        self.assertEqual(lines[2], ">　")     # 仅全角空格的引用行也不注锚
+        self.assertIn("popup-anchor-3", lines[3])
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1113,7 +1113,10 @@ class MarkdownViewer(QMainWindow):
                 continue
             mq = quote_re.match(line)
             if mq:
-                out.append(f'{mq.group(1)}{anchor}{mq.group(2)}')
+                if mq.group(2).strip('\u3000 \t'):
+                    out.append(f'{mq.group(1)}{anchor}{mq.group(2)}')
+                else:
+                    out.append(line)  # 空引用行不注锚，保持段落分隔符
                 continue
             if len(line) - len(stripped) >= 4:
                 out.append(line)  # 缩进代码块
