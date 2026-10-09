@@ -1433,6 +1433,7 @@ pre {{
     background: #f4f4f4;
     padding: 12px;
     white-space: pre-wrap;
+    line-height: 1.0;
 }}
 table.md-quote {{
     border: none;

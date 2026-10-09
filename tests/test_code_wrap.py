@@ -49,6 +49,16 @@ def _render_via_pipeline(width=300):
     return tb
 
 
+def _render_multiline_code_block(width=300):
+    """渲染含空行的多行 <pre> 代码块，返回 QTextBrowser。"""
+    body = "<pre><code>line1 内容\n\nline2 内容</code></pre>"
+    tb = QTextBrowser()
+    tb.resize(width, 600)
+    tb.setHtml(MarkdownViewer.wrap_html(body))
+    tb.document().setTextWidth(width)
+    return tb
+
+
 class TestCodeBlockWrap(unittest.TestCase):
     def test_long_code_line_has_no_horizontal_scroll(self):
         tb = _render_code_block()
@@ -70,6 +80,21 @@ class TestCodeBlockWrap(unittest.TestCase):
     def test_soft_wrap_preserves_text_content(self):
         tb = _render_code_block()
         self.assertEqual(tb.toPlainText().strip(), LONG_LINE)
+
+    def test_code_block_lines_have_no_vertical_gap(self):
+        tb = _render_multiline_code_block()
+        doc = tb.document()
+        blk = doc.begin()
+        prev_bottom = None
+        gaps = []
+        while blk.isValid():
+            r = doc.documentLayout().blockBoundingRect(blk)
+            if prev_bottom is not None:
+                gaps.append(round(r.y() - prev_bottom, 1))
+            prev_bottom = r.y() + r.height()
+            blk = blk.next()
+        self.assertEqual(gaps, [0.0] * len(gaps),
+                         msg=f"block 间存在布局空隙（背景断开）: {gaps}")
 
 
 if __name__ == "__main__":

@@ -116,3 +116,39 @@ td.md-quote-cell p {
 - 新增单元测试：`_inject_anchors` 对空引用行（`> `、`>　`）不注锚、保持原样；对含内容引用行仍注锚。
 - 新增单元测试：段落末尾悬空 `<br />` 被删除，正文段落内换行 `<br />` 不受影响。
 - 现有 `test_inject_anchors.py`、`test_quote_rendering.py` 回归。
+
+## 10. 补充修复（2026-10-09 追加）：代码块行间背景断开
+
+用户截图红框内容实为**代码块**（``` 围栏），非引用块。此前修复未命中。
+
+### 10.1 根因
+
+`wrap_html()` 的 `body { line-height: 1.6 }` 使 Qt 为**每个 block 分配 1.6 倍字体行高的布局槽位**，但 block 背景（boundingRect）只覆盖文字部分，多出的 60% 成为 block 之间的无背景白色空隙。而代码块（`<pre>`）内每个换行 `\n` 都被 Qt 解析为**独立 block**，于是每行之间出现一道白缝。
+
+定量验证（block 间垂直空隙）：
+
+| line-height | block 间白缝 |
+|------------|-------------|
+| 1.0 | 0 |
+| 1.2 | 3.2px |
+| 1.6（现状） | 9.6px |
+
+### 10.2 修复
+
+`wrap_html()` 的 `pre` 规则加 `line-height: 1.0;`：
+
+```css
+pre {
+    background: #f4f4f4;
+    padding: 12px;
+    white-space: pre-wrap;
+    line-height: 1.0;
+}
+```
+
+代码块行距变为紧凑（代码块本就该紧凑），block 间空隙归零、背景连续。
+
+### 10.3 测试
+
+- 新增单元测试：`tests/test_code_wrap.py` 渲染多行代码块，断言各 block 的 `blockBoundingRect` 之间无垂直空隙。
+- 现有测试回归。
