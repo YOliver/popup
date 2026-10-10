@@ -794,7 +794,8 @@ class MarkdownViewer(QMainWindow):
             self.edit_panel.show()
             self.edit_action.setChecked(True)
             self.load_edit_text()
-            self._sync_preview_to_edit(0)  # 显示时定位到预览当前比例位置
+            # 推迟到事件循环下一轮：等预览变窄重排、编辑器完成布局后再定位
+            QTimer.singleShot(0, lambda: self._sync_preview_to_edit(0))
 
     def load_edit_text(self):
         """读取当前文件原文到编辑器，记录换行风格"""
@@ -861,8 +862,25 @@ class MarkdownViewer(QMainWindow):
         self._anchor_ys = []
         self._anchor_dirty = False
 
+    def _edit_anchor_points(self):
+        """生成插值折线点 (Es, Ys)：编辑侧视觉行 ↔ 预览 Y，含首尾补点。
+
+        E 用 firstLineNumber() 实时查询（与编辑器滚动条单位一致，宽度变化自动正确）；
+        编辑内容行数少于锚点行号时，该锚点连同其 Y 一起跳过。
+        """
+        edit_doc = self.edit_text.document()
+        es, ys = [0], [0.0]
+        for line, y in zip(self._anchor_lines, self._anchor_ys):
+            blk = edit_doc.findBlockByNumber(line)
+            if blk.isValid():
+                es.append(blk.firstLineNumber())
+                ys.append(y)
+        es.append(edit_doc.lineCount())
+        ys.append(self.text_browser.document().size().height())
+        return es, ys
+
     def _sync_preview_to_edit(self, value):
-        """预览滚动 → 编辑器滚动条按锚点映射跟随（仅滚动视图，不动光标）。
+        """预览滚动 → 编辑器滚动条按锚点插值跟随（仅滚动视图，不动光标）。
 
         value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
         """
@@ -870,41 +888,40 @@ class MarkdownViewer(QMainWindow):
             return
         if not self.edit_panel.isVisible():
             return
+        preview_sb = self.text_browser.verticalScrollBar()
         edit_sb = self.edit_text.verticalScrollBar()
         self._syncing = True
         try:
+            self._ensure_anchor_map()
             if self._anchor_lines:
-                y = self.text_browser.verticalScrollBar().value()
-                i = self._nearest_anchor_index(self._anchor_ys, y)
-                line = self._anchor_lines[i]
-                blk = self.edit_text.document().findBlockByNumber(line)
-                if not blk.isValid():
-                    return
-                doc_y = self.edit_text.blockBoundingGeometry(blk).y() + edit_sb.value()
-                edit_sb.setValue(int(doc_y))
+                es, ys = self._edit_anchor_points()
+                edit_sb.setValue(self._map_scroll(
+                    preview_sb.value(), preview_sb.maximum(),
+                    edit_sb.maximum(), ys, es))
             else:
-                edit_sb.setValue(self._proportional_value(
-                    self.text_browser.verticalScrollBar(), edit_sb))
+                edit_sb.setValue(self._proportional_value(preview_sb, edit_sb))
         finally:
             self._syncing = False
 
     def _sync_edit_to_preview(self, value):
-        """编辑器滚动 → 预览滚动条按锚点映射跟随。
+        """编辑器滚动 → 预览滚动条按锚点插值跟随。
 
         value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
         """
         if self._syncing:
             return
         preview_sb = self.text_browser.verticalScrollBar()
+        edit_sb = self.edit_text.verticalScrollBar()
         self._syncing = True
         try:
+            self._ensure_anchor_map()
             if self._anchor_lines:
-                line = self.edit_text.firstVisibleBlock().blockNumber()
-                i = self._nearest_anchor_index(self._anchor_lines, line)
-                preview_sb.setValue(self._anchor_ys[i])
+                es, ys = self._edit_anchor_points()
+                preview_sb.setValue(self._map_scroll(
+                    edit_sb.value(), edit_sb.maximum(),
+                    preview_sb.maximum(), es, ys))
             else:
-                preview_sb.setValue(self._proportional_value(
-                    self.edit_text.verticalScrollBar(), preview_sb))
+                preview_sb.setValue(self._proportional_value(edit_sb, preview_sb))
         finally:
             self._syncing = False
 
@@ -1350,12 +1367,6 @@ class MarkdownViewer(QMainWindow):
         if src_max > 0 and value >= src_max:
             return dst_max
         return round(MarkdownViewer._interp(xs, ys, value))
-
-    @staticmethod
-    def _nearest_anchor_index(arr, target):
-        """在非降序数组 arr 中返回最后一个 <= target 的索引；target 小于首元素返回 0。"""
-        idx = bisect.bisect_right(arr, target) - 1
-        return idx if idx >= 0 else 0
 
     @staticmethod
     def _collect_anchor_blocks(doc):
