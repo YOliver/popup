@@ -48,8 +48,10 @@
 
 两侧都采用"视口顶部所在的内容位置"：
 
-- 编辑侧坐标 E：视觉行号 = `edit_sb.value()`；锚点的 E 值 = `findBlockByNumber(line).firstLineNumber()`。
+- 编辑侧坐标：**源行号**（块号）。编辑器显示原文，源行号即块号，与懒布局无关。读取用 `firstVisibleBlock().blockNumber()`（恒准确），写入用 `_scroll_edit_to_source_line()`（游标定位，见第 3 节）。
 - 预览侧坐标 Y：像素 = `preview_sb.value()`；锚点的 Y 值 = `documentLayout().blockBoundingRect(blk).y()`。
+
+> **实测修正（2026-10-10）**：原方案用「编辑侧视觉行号 = `firstLineNumber()`」作坐标。验证发现 `QPlainTextEdit` 的 `QPlainTextDocumentLayout` 是懒布局——`firstLineNumber()`/`lineCount()`/滚动条 `maximum()` 对远离视口的块返回估算值（每块按 1 行计），偏差随位置累积且不具确定性（多次运行数值不同），强制布局/缓存也无法稳定。故编辑侧坐标改为源行号，绕开视觉行号。
 
 ### 2. 预览映射：完整构建 + 懒刷新 Y
 
@@ -76,15 +78,16 @@
 - `setHtml` 不会替换 `documentLayout` 对象（已实测），信号只需连接一次。
 - `reload_file()` 返回后，预览还会再触发 1 次 `documentSizeChanged`（实测，来自延迟排版或图片加载），脏标记会被重新置为 True，下一次滚动时触发一次 Y 刷新。这属于预期行为，代价只是一次廉价的 Y 重算。
 
-### 3. 编辑侧锚点坐标实时查询
+### 3. 编辑侧坐标：源行号 + 游标定位
 
-不缓存编辑侧坐标。每次同步时调用 `_edit_anchor_points() -> (Es, Ys)`，它负责生成插值用的完整折线点：
+编辑侧不缓存任何坐标，也不依赖 `firstLineNumber` 做映射：
 
-1. 把 `_anchor_lines` 逐个转换成视觉行 E = `findBlockByNumber(line).firstLineNumber()`，与 `_anchor_ys` 一一对齐。
-2. `findBlockByNumber` 返回无效块的锚点（编辑内容行数变少时会出现）连同对应的 Y 一起跳过。
-3. 补首尾点（规则见第 4 节"端点补点"）。
+- **源行点对**：`_anchor_points() -> (lines, ys)` 返回「源行号 ↔ 预览 Y」折线点，即 `_anchor_lines` / `_anchor_ys` 加首尾补点。源行号即块号，天然有序且与懒布局无关。
+- **编辑→预览**：`src = firstVisibleBlock().blockNumber()`（恒准确）→ `_map_scroll(src, ..., lines, ys)` 插值到预览 Y。
+- **预览→编辑**：`src = _map_scroll(preview_value, ..., ys, lines)` 插值到源行 → `_scroll_edit_to_source_line(src)` 滚动编辑器。
+- **`_scroll_edit_to_source_line(src)`**：`setTextCursor(游标置于 src 块)` 会**同步强制该块及其上方所有块布局**（游标块必须定位，故累计布局完成），此时 `firstLineNumber(src)` 变准确；然后 `setTextCursor(旧游标)` 恢复、最后 `verticalScrollBar().setValue(firstLineNumber)` 覆盖滚动。顺序必须是「游标 → 读 firstLineNumber → 恢复游标 → setValue」，否则恢复游标会把视图滚回原位。全程同步完成，视口只绘制最终位置，无闪动、不动光标。
 
-返回的 Es、Ys 等长且已包含首尾补点，可直接传给 `_map_scroll`。这样编辑面板宽度变化时无需维护失效逻辑。实测 1329 个锚点耗时 1.7ms；编辑面板加宽后 `firstLineNumber` 会立即更新（总视觉行从 2801 变为 2792）。
+这样两个方向共用同一组源行↔Y 锚点，互为逆映射，误差不累积。
 
 ### 4. 分段线性插值
 
@@ -100,17 +103,17 @@ def _interp(xs, ys, x):
 
 使用 `bisect_right` 定位区间：`i = bisect_right(xs, x)`，在 `[xs[i-1], xs[i])` 区间内插值。由于 `bisect_right` 会越过所有等值节点，零宽区间 `xs[i-1] == xs[i]` 永远不会被选中，因此不会除零；x 等于重复值时自然落在最后一个等值节点上。
 
-端点补点（在 `_edit_anchor_points` 中完成，保证首尾也能插值，并保持单调）：
+端点补点（在 `_anchor_points` 中完成，保证首尾也能插值，并保持单调）：
 
-- 首部插入 `(0, 0)`。
-- 尾部追加 `(编辑器总视觉行数 edit_doc.lineCount(), 预览文档高度 doc.size().height())`。两者都是内容坐标，必然不小于最后一个锚点。
+- 首部补点 `(0, 0)`（仅当首锚点源行 > 0 时）。
+- 尾部追加 `(编辑器末块号 blockCount-1, 预览文档高度 doc.size().height())`。两者都是内容坐标，必然不小于最后一个锚点。
 - 目标值超出滚动条范围时，由 `setValue` 自行截断。
 
-零宽区间的来源：首部补点 `(0, 0)` 与第一个锚点重合（第一个锚点的 E 通常为 0）；单调性保护把倒退的 Y 抹平。（同一个块中的多个锚点只取第一个，不会产生重复 Y。）以上情况都由 `_interp` 的重复节点规则处理。
+零宽区间的来源：首部补点 `(0, 0)` 与第一个锚点重合（第一个锚点的源行通常为 0）；单调性保护把倒退的 Y 抹平。（同一个块中的多个锚点只取第一个，不会产生重复 Y。）以上情况都由 `_interp` 的重复节点规则处理。
 
 **单调性保护**
 
-`_interp` 依赖 xs 非降序。当前复现文档两侧均单调（已实测），但其他文档可能出现 Y 倒退（例如浮动元素），此时二分查找会落入错误区间。`_anchor_block_ys` 在返回前对 Y 做累计最大值处理（`y_i = max(y_i, y_{i-1})`），倒退的锚点会退化成零宽区间，由插值规则自然处理。编辑侧 E 来自递增行号的 `firstLineNumber`，本身单调，无需处理。
+`_interp` 依赖 xs 非降序。当前复现文档两侧均单调（已实测），但其他文档可能出现 Y 倒退（例如浮动元素），此时二分查找会落入错误区间。`_anchor_block_ys` 在返回前对 Y 做累计最大值处理（`y_i = max(y_i, y_{i-1})`），倒退的锚点会退化成零宽区间，由插值规则自然处理。编辑侧源行号（块号）天然递增，本身单调，无需处理。
 
 **底部对齐规则**
 
@@ -128,15 +131,15 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
     否则返回 round(_interp(xs, ys, value))。"""
 ```
 
-- 编辑→预览：`preview_sb.setValue(_map_scroll(edit_sb.value(), edit_sb.maximum(), preview_sb.maximum(), Es, Ys))`
-- 预览→编辑：`edit_sb.setValue(_map_scroll(preview_sb.value(), preview_sb.maximum(), edit_sb.maximum(), Ys, Es))`
+- 编辑→预览：`preview_sb.setValue(_map_scroll(src, blockCount-1, preview_sb.maximum(), lines, ys))`，其中 `src = firstVisibleBlock().blockNumber()`。
+- 预览→编辑：`src = _map_scroll(preview_sb.value(), preview_sb.maximum(), blockCount-1, ys, lines)`，再 `_scroll_edit_to_source_line(src)`。
 
-其中 Es / Ys 来自 `_edit_anchor_points()`，已包含首尾补点。
+其中 `lines / ys` 来自 `_anchor_points()`，已包含首尾补点。
 
 **比例回退的条件**
 
 - `_anchor_lines` 为空（文档没有锚点，或映射已被 `_clear_anchor_map` 清空）：沿用现有的 `_proportional_value`。
-- 锚点非空但在编辑侧全部无效：`_edit_anchor_points` 只返回首尾两个补点，插值结果即为两侧内容的线性比例，效果等同于比例同步，无需单独分支。
+- 编辑侧源行号用块号，始终有效，无需「锚点在编辑侧无效」的特殊处理（编辑内容行数变少时 `findBlockByNumber` 返回无效块，`_scroll_edit_to_source_line` 直接跳过）。
 
 ### 5. 打开面板时的首次定位
 
@@ -160,11 +163,11 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - `__init__`：新增 `_anchor_dirty`、`_anchor_blocks`
 - `init_ui`：连接 `documentSizeChanged`
 - `toggle_edit_panel`：延迟首次同步
-- `_sync_preview_to_edit` / `_sync_edit_to_preview`：改为调用 `_map_scroll`
+- `_sync_preview_to_edit` / `_sync_edit_to_preview`：改为源行号插值 + 游标定位
 - `reload_file`：改用两级构建，保存 `_anchor_blocks`，清除脏标记；读文件失败分支调用 `_clear_anchor_map`
 - `open_help_doc`：帮助文档缺失分支调用 `_clear_anchor_map`
 - `_build_anchor_map`：拆分为 `_collect_anchor_blocks` + `_anchor_block_ys`，自身保留为组合
-- 新增 `_interp`、`_map_scroll`、`_ensure_anchor_map`、`_edit_anchor_points`、`_clear_anchor_map`、`_mark_anchor_dirty`（`documentSizeChanged` 回调，只置脏标记）
+- 新增 `_interp`、`_map_scroll`、`_ensure_anchor_map`、`_anchor_points`、`_scroll_edit_to_source_line`、`_clear_anchor_map`、`_mark_anchor_dirty`（`documentSizeChanged` 回调，只置脏标记）
 - 删除 `_nearest_anchor_index`
 
 ## 测试
@@ -206,7 +209,7 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - 改变分隔条宽度并处理事件后 `_anchor_dirty` 为 True；触发一次滚动同步后为 False。
 - 懒刷新后的 `_anchor_ys` 与完整重建结果一致。
 - 懒刷新耗时远小于完整构建（目标 < 10ms，对比完整构建 120ms）。
-- 编辑器滚动到某个锚点块的 `firstLineNumber` 后，预览值约等于该锚点 Y；反向同理。
+- 编辑→预览：`_scroll_edit_to_source_line(锚点源行)` 后编辑器顶部块等于该源行，预览值约等于该锚点 Y；预览→编辑同理（用 `psb.setValue(锚点 Y)` 触发同步，校验编辑器顶部块等于该源行）。
 - 任一侧滚到底时，另一侧也在底部。
 
 ### 手动冒烟

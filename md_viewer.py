@@ -862,25 +862,46 @@ class MarkdownViewer(QMainWindow):
         self._anchor_ys = []
         self._anchor_dirty = False
 
-    def _edit_anchor_points(self):
-        """生成插值折线点 (Es, Ys)：编辑侧视觉行 ↔ 预览 Y，含首尾补点。
+    def _anchor_points(self):
+        """源行 ↔ 预览 Y 的插值折线点，含首尾补点。
 
-        E 用 firstLineNumber() 实时查询（与编辑器滚动条单位一致，宽度变化自动正确）；
-        编辑内容行数少于锚点行号时，该锚点连同其 Y 一起跳过。
+        编辑侧以「源行号」为坐标（编辑器显示原文，源行号即块号，不依赖懒布局），
+        预览侧以像素 Y 为坐标。首尾补点覆盖首锚点之前与末锚点之后的剩余内容。
         """
-        edit_doc = self.edit_text.document()
-        es, ys = [0], [0.0]
-        for line, y in zip(self._anchor_lines, self._anchor_ys):
-            blk = edit_doc.findBlockByNumber(line)
-            if blk.isValid():
-                es.append(blk.firstLineNumber())
-                ys.append(y)
-        es.append(edit_doc.lineCount())
-        ys.append(self.text_browser.document().size().height())
-        return es, ys
+        lines = list(self._anchor_lines)
+        ys = list(self._anchor_ys)
+        if not lines:
+            return [0], [0.0]
+        last_line = self.edit_text.document().blockCount() - 1
+        if lines[0] > 0:
+            lines.insert(0, 0)
+            ys.insert(0, 0.0)
+        if lines[-1] < last_line:
+            lines.append(last_line)
+            ys.append(self.text_browser.document().size().height())
+        return lines, ys
+
+    def _scroll_edit_to_source_line(self, src_line):
+        """把编辑器滚到源行顶部（仅滚动视图，不动光标）。
+
+        QPlainTextDocumentLayout 懒布局下 firstLineNumber 对远处块是估算值，但
+        setTextCursor 会把游标所在块同步强制布局，使 firstLineNumber 变准确，再
+        用它精确定位。全程在 _syncing 保护下同步完成，视口只绘制最终位置，无闪动。
+        """
+        edit = self.edit_text
+        blk = edit.document().findBlockByNumber(src_line)
+        if not blk.isValid():
+            return
+        old_cursor = edit.textCursor()
+        cursor = edit.textCursor()
+        cursor.setPosition(blk.position())
+        edit.setTextCursor(cursor)   # 强制该块布局，firstLineNumber 变准确
+        first_line = blk.firstLineNumber()
+        edit.setTextCursor(old_cursor)  # 恢复游标（可能把视图滚回原位）
+        edit.verticalScrollBar().setValue(first_line)  # 最后滚动覆盖回去
 
     def _sync_preview_to_edit(self, value):
-        """预览滚动 → 编辑器滚动条按锚点插值跟随（仅滚动视图，不动光标）。
+        """预览滚动 → 编辑器按源行插值跟随（仅滚动视图，不动光标）。
 
         value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
         """
@@ -889,39 +910,44 @@ class MarkdownViewer(QMainWindow):
         if not self.edit_panel.isVisible():
             return
         preview_sb = self.text_browser.verticalScrollBar()
-        edit_sb = self.edit_text.verticalScrollBar()
+        edit_doc = self.edit_text.document()
         self._syncing = True
         try:
             self._ensure_anchor_map()
             if self._anchor_lines:
-                es, ys = self._edit_anchor_points()
-                edit_sb.setValue(self._map_scroll(
+                lines, ys = self._anchor_points()
+                src = self._map_scroll(
                     preview_sb.value(), preview_sb.maximum(),
-                    edit_sb.maximum(), ys, es))
+                    edit_doc.blockCount() - 1, ys, lines)
+                self._scroll_edit_to_source_line(src)
             else:
-                edit_sb.setValue(self._proportional_value(preview_sb, edit_sb))
+                self.edit_text.verticalScrollBar().setValue(
+                    self._proportional_value(
+                        preview_sb, self.edit_text.verticalScrollBar()))
         finally:
             self._syncing = False
 
     def _sync_edit_to_preview(self, value):
-        """编辑器滚动 → 预览滚动条按锚点插值跟随。
+        """编辑器滚动 → 预览按源行插值跟随。
 
         value 由 valueChanged(int) 信号传入，方法内部取滚动条当前值，忽略入参。
         """
         if self._syncing:
             return
         preview_sb = self.text_browser.verticalScrollBar()
-        edit_sb = self.edit_text.verticalScrollBar()
+        edit_doc = self.edit_text.document()
         self._syncing = True
         try:
             self._ensure_anchor_map()
             if self._anchor_lines:
-                es, ys = self._edit_anchor_points()
+                lines, ys = self._anchor_points()
+                src = self.edit_text.firstVisibleBlock().blockNumber()
                 preview_sb.setValue(self._map_scroll(
-                    edit_sb.value(), edit_sb.maximum(),
-                    preview_sb.maximum(), es, ys))
+                    src, edit_doc.blockCount() - 1,
+                    preview_sb.maximum(), lines, ys))
             else:
-                preview_sb.setValue(self._proportional_value(edit_sb, preview_sb))
+                preview_sb.setValue(self._proportional_value(
+                    self.edit_text.verticalScrollBar(), preview_sb))
         finally:
             self._syncing = False
 
