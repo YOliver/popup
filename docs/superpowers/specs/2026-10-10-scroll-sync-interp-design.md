@@ -7,7 +7,7 @@
 - 在预览侧滚动：编辑器跳动无规律。
 - 在编辑侧滚动：开头勉强对齐，越往后偏得越多。
 
-复现文档：`失去的二十年.md`（2748 行、约 13 万字、1331 个锚点、31 张图片，单行段落最长约 450 字）。
+复现文档：`失去的二十年.md`（2748 行、约 13 万字、1329 个进入映射的锚点、31 张图片，单行段落最长约 450 字）。
 
 ## 根因（已在真实平台用探针实测确认）
 
@@ -59,7 +59,8 @@
 - `_build_anchor_map(doc)` 拆分为：
   - `_collect_anchor_blocks(doc) -> (lines, blocks)`：遍历片段，找出锚点行号及其所在的 `QTextBlock`（即原来的遍历逻辑）。
   - `_anchor_block_ys(doc, blocks) -> ys`：对每个块取 `blockBoundingRect(blk).y()`，再做累计最大值处理（见第 4 节"单调性保护"）。
-  - `_build_anchor_map` 保留为两者的组合，返回值 `(lines, ys)` 不变，现有 `tests/test_anchor_map.py` 无需修改。
+  - `_build_anchor_map` 保留为两者的组合，返回值 `(lines, ys)` 不变，`tests/test_anchor_map.py` 中的现有用例无需修改（新增用例见"测试"一节）。
+- 锚点落在哪个块只取决于文档结构，与排版宽度无关（已实测：全宽与变窄后完整重建得到的 1329 个锚点行号完全相同），因此缓存块列表是安全的。
 - `reload_file()` 调用 `_collect_anchor_blocks` 与 `_anchor_block_ys`，保存 `_anchor_lines / _anchor_blocks / _anchor_ys`，并清除脏标记。
 
 **懒刷新 Y（宽度变化后执行）**
@@ -77,7 +78,13 @@
 
 ### 3. 编辑侧锚点坐标实时查询
 
-不缓存编辑侧坐标。每次同步时用 `_edit_anchor_points()` 把 `_anchor_lines` 逐个转换成视觉行 E；`findBlockByNumber` 返回无效块的锚点（编辑内容行数变少时会出现）直接跳过，同时也跳过对应的 Y。这样编辑面板宽度变化时无需维护失效逻辑。实测 1329 个锚点耗时 1.7ms；编辑面板加宽后 `firstLineNumber` 会立即更新（总视觉行从 2801 变为 2792）。
+不缓存编辑侧坐标。每次同步时调用 `_edit_anchor_points() -> (Es, Ys)`，它负责生成插值用的完整折线点：
+
+1. 把 `_anchor_lines` 逐个转换成视觉行 E = `findBlockByNumber(line).firstLineNumber()`，与 `_anchor_ys` 一一对齐。
+2. `findBlockByNumber` 返回无效块的锚点（编辑内容行数变少时会出现）连同对应的 Y 一起跳过。
+3. 补首尾点（规则见第 4 节"端点补点"）。
+
+返回的 Es、Ys 等长且已包含首尾补点，可直接传给 `_map_scroll`。这样编辑面板宽度变化时无需维护失效逻辑。实测 1329 个锚点耗时 1.7ms；编辑面板加宽后 `firstLineNumber` 会立即更新（总视觉行从 2801 变为 2792）。
 
 ### 4. 分段线性插值
 
@@ -88,18 +95,18 @@
 def _interp(xs, ys, x):
     """分段线性插值：xs 非降序，返回 x 在 (xs, ys) 折线上对应的 y。
     x <= xs[0] 返回 ys[0]；x >= xs[-1] 返回 ys[-1]；
-    命中零宽区间（相邻 xs 相等）时返回该区间左端 y。"""
+    x 恰好等于一组重复节点（相邻 xs 相等）的值时，返回最后一个等值节点的 y。"""
 ```
 
-使用 `bisect` 定位区间。
+使用 `bisect_right` 定位区间：`i = bisect_right(xs, x)`，在 `[xs[i-1], xs[i])` 区间内插值。由于 `bisect_right` 会越过所有等值节点，零宽区间 `xs[i-1] == xs[i]` 永远不会被选中，因此不会除零；x 等于重复值时自然落在最后一个等值节点上。
 
-端点补点（保证首尾也能插值，并保持单调）：
+端点补点（在 `_edit_anchor_points` 中完成，保证首尾也能插值，并保持单调）：
 
 - 首部插入 `(0, 0)`。
 - 尾部追加 `(编辑器总视觉行数 edit_doc.lineCount(), 预览文档高度 doc.size().height())`。两者都是内容坐标，必然不小于最后一个锚点。
 - 目标值超出滚动条范围时，由 `setValue` 自行截断。
 
-相邻锚点 Y 相同（例如同一个 block 中存在多个锚点）不会造成除零，由 `_interp` 的零宽区间规则处理。
+零宽区间的来源：首部补点 `(0, 0)` 与第一个锚点重合（第一个锚点的 E 通常为 0）；单调性保护把倒退的 Y 抹平。（同一个块中的多个锚点只取第一个，不会产生重复 Y。）以上情况都由 `_interp` 的重复节点规则处理。
 
 **单调性保护**
 
@@ -124,7 +131,12 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - 编辑→预览：`preview_sb.setValue(_map_scroll(edit_sb.value(), edit_sb.maximum(), preview_sb.maximum(), Es, Ys))`
 - 预览→编辑：`edit_sb.setValue(_map_scroll(preview_sb.value(), preview_sb.maximum(), edit_sb.maximum(), Ys, Es))`
 
-其中 Es / Ys 已经包含首尾补点。
+其中 Es / Ys 来自 `_edit_anchor_points()`，已包含首尾补点。
+
+**比例回退的条件**
+
+- `_anchor_lines` 为空（文档没有锚点，或映射已被 `_clear_anchor_map` 清空）：沿用现有的 `_proportional_value`。
+- 锚点非空但在编辑侧全部无效：`_edit_anchor_points` 只返回首尾两个补点，插值结果即为两侧内容的线性比例，效果等同于比例同步，无需单独分支。
 
 ### 5. 打开面板时的首次定位
 
@@ -138,10 +150,12 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 
 - **部分锚点不进入映射**：复现文档共注入 1363 个锚点，映射中只有 1329 个。原因是同一个块中只取第一个锚点（nl2br 形成的多行段落、多行引用都属于这种情况）。插值可以覆盖这些空隙。
 - **拖分隔条或调整窗口后不会立即重新对齐**：拖动本身不触发同步，下一次任一侧滚动时自动纠正。
+- **预览滚动条范围滞后于排版**：实测刚变窄时预览文档高 128488，滚动条最大值仍为旧值 145206；处理完事件后才更新为 127782（= 128488 − 视口高 706）。因此排版刚变化时，底部对齐规则和打开面板时的首次定位可能读到旧的最大值，下一次滚动会自动纠正。
+- **到底时最后一格会跳一下**：一侧滚到底时，另一侧从插值位置直接跳到底部。跳动幅度取决于两侧末尾内容疏密的差异。
 
 ## 改动范围
 
-仅修改 `md_viewer.py`：
+代码只修改 `md_viewer.py`（测试改动见"测试"一节）：
 
 - `__init__`：新增 `_anchor_dirty`、`_anchor_blocks`
 - `init_ui`：连接 `documentSizeChanged`
@@ -151,9 +165,11 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - `open_help_doc`：帮助文档缺失分支调用 `_clear_anchor_map`
 - `_build_anchor_map`：拆分为 `_collect_anchor_blocks` + `_anchor_block_ys`，自身保留为组合
 - 新增 `_interp`、`_map_scroll`、`_ensure_anchor_map`、`_edit_anchor_points`、`_clear_anchor_map`
-- 删除 `_nearest_anchor_index` 及 `tests/test_anchor_index.py`
+- 删除 `_nearest_anchor_index`
 
 ## 测试
+
+测试文件改动：`tests/test_scroll_sync.py`、`tests/test_anchor_map.py` 追加用例；删除 `tests/test_anchor_index.py`。
 
 ### 单元测试（`tests/test_scroll_sync.py` 追加）
 
@@ -162,7 +178,7 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - 区间中点插值正确
 - x 小于首点、大于尾点时截断到端点
 - 正好命中节点
-- 零宽区间不除零，返回左端值
+- 重复节点不除零，x 等于重复值时返回最后一个等值节点的 y
 - 只有单个点
 
 `_map_scroll` 纯函数：
@@ -171,18 +187,23 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - `src_max == 0` 时不触发底部规则，走插值
 - 非底部时结果等于 `round(_interp(...))`
 
-### 集成测试（offscreen，不断言像素）
+### 集成测试（offscreen，文档层面，不断言像素）
+
+现有测试都不会创建 `MarkdownViewer`。创建它会注册全局热键、建立托盘图标并读写 QSettings，对测试进程有副作用，因此集成测试只在 `QTextDocument` 层面进行，沿用 `tests/test_anchor_map.py` 现有的 `_doc()` 写法。
 
 `tests/test_anchor_map.py` 追加：
 
-- `_anchor_block_ys` 单调性保护：构造 Y 倒退的输入（可直接测累计最大值逻辑，或用包含锚点的文档），断言输出非降。
-- 懒刷新：`MarkdownViewer` 加载含锚点的小文档并 `show()`，改变 `text_browser` 宽度并处理事件后，`_anchor_dirty` 为 True；调用 `_ensure_anchor_map()` 后为 False，且 `_anchor_lines` 不变、`_anchor_ys` 长度不变且非降。不断言"加载后脏标记为 False"，因为加载后会多触发一次 `documentSizeChanged`（见第 2 节）。
-- 清空映射：加载文档后对不存在的路径调用 `open_help_doc`，断言 `_anchor_lines / _anchor_blocks / _anchor_ys` 均为空。
+- `_collect_anchor_blocks` 与旧行为一致：返回的行号与 `_build_anchor_map` 相同，块数与行号数相等。
+- 单调性保护：把 `_collect_anchor_blocks` 得到的块列表倒序传给 `_anchor_block_ys`，断言输出非降。
+- 宽度变化后只重算 Y 的结果正确：取得块列表后调用 `doc.setTextWidth()` 改变宽度，断言 `_anchor_block_ys(doc, blocks)` 与重新完整调用 `_build_anchor_map(doc)` 得到的 ys 相等。
+
+不写单元测试、交给真实平台探针或手动冒烟验证的部分：`documentSizeChanged` 置脏、`_ensure_anchor_map` 清脏、`_clear_anchor_map` 在两个错误分支被调用。
 
 ### 真实平台探针（实现后执行，不入库）
 
 用 `失去的二十年.md` 打开编辑面板：
 
+- 改变分隔条宽度并处理事件后 `_anchor_dirty` 为 True；触发一次滚动同步后为 False。
 - 懒刷新后的 `_anchor_ys` 与完整重建结果一致。
 - 懒刷新耗时远小于完整构建（目标 < 10ms，对比完整构建 120ms）。
 - 编辑器滚动到某个锚点块的 `firstLineNumber` 后，预览值约等于该锚点 Y；反向同理。
@@ -190,6 +211,6 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 
 ### 手动冒烟
 
-用 `失去的二十年.md` 分别检查开头、中段、末尾三个位置：两侧滚轮滚动后对齐情况、长段落内部连续跟随、拖分隔条后继续滚动仍对齐、关闭再打开面板后定位正确。
+用 `失去的二十年.md` 分别检查开头、中段、末尾三个位置：两侧滚轮滚动后对齐情况、长段落内部连续跟随、拖分隔条后继续滚动仍对齐、关闭再打开面板后定位正确。另外打开一个不存在的帮助文档后，两侧滚动不报错（走比例回退）。
 
 offscreen 环境下字体度量不可信，像素级对齐只能靠真实平台探针和手动冒烟验证。
