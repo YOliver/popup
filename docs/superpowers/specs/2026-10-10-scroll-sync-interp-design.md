@@ -1,4 +1,4 @@
-# 滚动同步错位修复：映射懒重建 + 视觉行单位 + 段内插值 设计
+# 滚动同步错位修复：映射懒刷新 + 视觉行单位 + 段内插值 设计
 
 ## 背景
 
@@ -49,19 +49,35 @@
 两侧都采用"视口顶部所在的内容位置"：
 
 - 编辑侧坐标 E：视觉行号 = `edit_sb.value()`；锚点的 E 值 = `findBlockByNumber(line).firstLineNumber()`。
-- 预览侧坐标 Y：像素 = `preview_sb.value()`；锚点的 Y 值 = `documentLayout().blockBoundingRect(blk).y()`（沿用 `_build_anchor_map`）。
+- 预览侧坐标 Y：像素 = `preview_sb.value()`；锚点的 Y 值 = `documentLayout().blockBoundingRect(blk).y()`。
 
-### 2. 预览映射懒重建
+### 2. 预览映射：完整构建 + 懒刷新 Y
 
-- 新增状态 `self._anchor_dirty = False`。
-- 在 `init_ui` 中连接 `self.text_browser.document().documentLayout().documentSizeChanged`，回调只执行 `self._anchor_dirty = True`，不做重计算。拖动分隔条时可能每帧都触发，所以回调必须足够轻。
-- 新增 `_ensure_anchor_map()`：若 `_anchor_dirty` 为真，则调用 `_build_anchor_map` 重建 `_anchor_lines / _anchor_ys`，然后清除脏标记。两个同步方法在查表前都先调用它。
-- `reload_file()` 构建映射后清除脏标记（`setHtml` 本身会触发 `documentSizeChanged`）。
-- 前提：`setHtml` 不会替换 `documentLayout` 对象，信号连接一次即可长期有效。实现时需在真实平台验证。若不成立，改为在 `reload_file` 中每次 `setHtml` 后重新连接。
+实测完整构建 `_build_anchor_map`（Python 逐片段遍历）在复现文档上耗时 120.8ms，放在滚动回调里会造成明显卡顿。但宽度变化只会改变锚点所在块的 Y，不会改变锚点落在哪个块。因此把构建拆成两级：
+
+**完整构建（只在内容变化时执行）**
+- `_build_anchor_map(doc)` 拆分为：
+  - `_collect_anchor_blocks(doc) -> (lines, blocks)`：遍历片段，找出锚点行号及其所在的 `QTextBlock`（即原来的遍历逻辑）。
+  - `_anchor_block_ys(doc, blocks) -> ys`：对每个块取 `blockBoundingRect(blk).y()`，再做累计最大值处理（见第 4 节"单调性保护"）。
+  - `_build_anchor_map` 保留为两者的组合，返回值 `(lines, ys)` 不变，现有 `tests/test_anchor_map.py` 无需修改。
+- `reload_file()` 调用 `_collect_anchor_blocks` 与 `_anchor_block_ys`，保存 `_anchor_lines / _anchor_blocks / _anchor_ys`，并清除脏标记。
+
+**懒刷新 Y（宽度变化后执行）**
+- 新增状态 `self._anchor_dirty = False` 和 `self._anchor_blocks = []`。
+- 在 `init_ui` 中连接 `self.text_browser.document().documentLayout().documentSizeChanged`，回调只执行 `self._anchor_dirty = True`。拖动分隔条时可能每帧都触发，回调必须足够轻。
+- 新增 `_ensure_anchor_map()`：若 `_anchor_dirty` 为真，则用缓存的 `_anchor_blocks` 调用 `_anchor_block_ys` 只重算 `_anchor_ys`（不重新遍历片段），然后清除脏标记。两个同步方法查表前都先调用它。
+
+**清空映射**
+- 预览文档还会在两处被 `setHtml` 替换且不重建映射：读文件失败（`md_viewer.py:922`）和帮助文档缺失（`md_viewer.py:1404`）。替换后缓存的 `QTextBlock` 会失效（可能指向错误的块），所以这两处在 `setHtml` 后调用 `_clear_anchor_map()`，清空三个列表并清除脏标记。清空后同步逻辑走现有的比例回退。
+- 启动时的欢迎页（`md_viewer.py:488`）发生在任何映射构建之前，无需处理。
+
+**已验证的前提与预期行为**
+- `setHtml` 不会替换 `documentLayout` 对象（已实测），信号只需连接一次。
+- `reload_file()` 返回后，预览还会再触发 1 次 `documentSizeChanged`（实测，来自延迟排版或图片加载），脏标记会被重新置为 True，下一次滚动时触发一次 Y 刷新。这属于预期行为，代价只是一次廉价的 Y 重算。
 
 ### 3. 编辑侧锚点坐标实时查询
 
-不缓存编辑侧坐标。每次同步时用 `_edit_anchor_points()` 把 `_anchor_lines` 逐个转换成视觉行 E；`findBlockByNumber` 返回无效块的锚点（编辑内容行数变少时会出现）直接跳过，同时也跳过对应的 Y。这样编辑面板宽度变化时无需维护失效逻辑。规模约 1300 次 C++ 调用，每次滚动的开销在毫秒级，可以接受。
+不缓存编辑侧坐标。每次同步时用 `_edit_anchor_points()` 把 `_anchor_lines` 逐个转换成视觉行 E；`findBlockByNumber` 返回无效块的锚点（编辑内容行数变少时会出现）直接跳过，同时也跳过对应的 Y。这样编辑面板宽度变化时无需维护失效逻辑。实测 1329 个锚点耗时 1.7ms；编辑面板加宽后 `firstLineNumber` 会立即更新（总视觉行从 2801 变为 2792）。
 
 ### 4. 分段线性插值
 
@@ -75,10 +91,7 @@ def _interp(xs, ys, x):
     命中零宽区间（相邻 xs 相等）时返回该区间左端 y。"""
 ```
 
-使用 `bisect` 定位区间。两侧共用同一个函数，只交换参数：
-
-- 编辑→预览：`preview_sb.setValue(round(_interp(Es, Ys, edit_sb.value())))`
-- 预览→编辑：`edit_sb.setValue(round(_interp(Ys, Es, preview_sb.value())))`
+使用 `bisect` 定位区间。
 
 端点补点（保证首尾也能插值，并保持单调）：
 
@@ -88,24 +101,56 @@ def _interp(xs, ys, x):
 
 相邻锚点 Y 相同（例如同一个 block 中存在多个锚点）不会造成除零，由 `_interp` 的零宽区间规则处理。
 
+**单调性保护**
+
+`_interp` 依赖 xs 非降序。当前复现文档两侧均单调（已实测），但其他文档可能出现 Y 倒退（例如浮动元素），此时二分查找会落入错误区间。`_anchor_block_ys` 在返回前对 Y 做累计最大值处理（`y_i = max(y_i, y_{i-1})`），倒退的锚点会退化成零宽区间，由插值规则自然处理。编辑侧 E 来自递增行号的 `firstLineNumber`，本身单调，无需处理。
+
+**底部对齐规则**
+
+插值按"视口顶部"对齐，两侧滚动条最大值对应的内容位置不同（实测编辑器 max=2766，末锚点在 2788）。因此一侧滚到底时，另一侧可能还差一截。规则：源滚动条 `maximum() > 0` 且 `value() >= maximum()` 时，目标直接设为 `dst.maximum()`，不走插值。
+
+**统一入口**
+
+把底部规则和插值合成一个纯函数，两个方向共用，只交换参数：
+
+```python
+@staticmethod
+def _map_scroll(value, src_max, dst_max, xs, ys):
+    """把源滚动条值映射为目标滚动条值。
+    src_max > 0 且 value >= src_max 时返回 dst_max（底部对齐）；
+    否则返回 round(_interp(xs, ys, value))。"""
+```
+
+- 编辑→预览：`preview_sb.setValue(_map_scroll(edit_sb.value(), edit_sb.maximum(), preview_sb.maximum(), Es, Ys))`
+- 预览→编辑：`edit_sb.setValue(_map_scroll(preview_sb.value(), preview_sb.maximum(), edit_sb.maximum(), Ys, Es))`
+
+其中 Es / Ys 已经包含首尾补点。
+
 ### 5. 打开面板时的首次定位
 
-`toggle_edit_panel` 中原来的 `self._sync_preview_to_edit(0)` 改为 `QTimer.singleShot(0, lambda: self._sync_preview_to_edit(0))`，等预览因变窄重新排版、编辑器加载文本完成布局后再定位。由于有懒重建，即使时序有偏差，下一次滚动也会自动纠正。
+`toggle_edit_panel` 中原来的 `self._sync_preview_to_edit(0)` 改为 `QTimer.singleShot(0, lambda: self._sync_preview_to_edit(0))`，等预览因变窄重新排版、编辑器加载文本完成布局后再定位。由于有懒刷新，即使时序有偏差，下一次滚动也会自动纠正。
 
 ### 6. 删除的代码
 
 `_sync_preview_to_edit` 中基于 `blockBoundingGeometry(...).y() + edit_sb.value()` 的错误计算，以及两个方法中基于 `_nearest_anchor_index` 的块首对齐查表，全部由插值替代。`_nearest_anchor_index` 仅被这两个方法调用，替换后不再有调用方，连同其测试 `tests/test_anchor_index.py` 一并删除。
 
+### 7. 已知行为（不处理）
+
+- **部分锚点不进入映射**：复现文档共注入 1363 个锚点，映射中只有 1329 个。原因是同一个块中只取第一个锚点（nl2br 形成的多行段落、多行引用都属于这种情况）。插值可以覆盖这些空隙。
+- **拖分隔条或调整窗口后不会立即重新对齐**：拖动本身不触发同步，下一次任一侧滚动时自动纠正。
+
 ## 改动范围
 
 仅修改 `md_viewer.py`：
 
-- `__init__`：新增 `_anchor_dirty`
+- `__init__`：新增 `_anchor_dirty`、`_anchor_blocks`
 - `init_ui`：连接 `documentSizeChanged`
 - `toggle_edit_panel`：延迟首次同步
-- `_sync_preview_to_edit` / `_sync_edit_to_preview`：改为插值
-- `reload_file`：清除脏标记
-- 新增 `_interp`、`_ensure_anchor_map`、`_edit_anchor_points`
+- `_sync_preview_to_edit` / `_sync_edit_to_preview`：改为调用 `_map_scroll`
+- `reload_file`：改用两级构建，保存 `_anchor_blocks`，清除脏标记；读文件失败分支调用 `_clear_anchor_map`
+- `open_help_doc`：帮助文档缺失分支调用 `_clear_anchor_map`
+- `_build_anchor_map`：拆分为 `_collect_anchor_blocks` + `_anchor_block_ys`，自身保留为组合
+- 新增 `_interp`、`_map_scroll`、`_ensure_anchor_map`、`_edit_anchor_points`、`_clear_anchor_map`
 - 删除 `_nearest_anchor_index` 及 `tests/test_anchor_index.py`
 
 ## 测试
@@ -120,16 +165,28 @@ def _interp(xs, ys, x):
 - 零宽区间不除零，返回左端值
 - 只有单个点
 
+`_map_scroll` 纯函数：
+
+- 源在底部（`value >= src_max > 0`）时返回 `dst_max`
+- `src_max == 0` 时不触发底部规则，走插值
+- 非底部时结果等于 `round(_interp(...))`
+
 ### 集成测试（offscreen，不断言像素）
 
-- 用 `MarkdownViewer` 加载含锚点的小文档后，`_anchor_dirty` 为 False；改变 `text_browser` 宽度并处理事件后变为 True；调用 `_ensure_anchor_map()` 后变回 False，且映射长度不变、Y 单调非降。
+`tests/test_anchor_map.py` 追加：
+
+- `_anchor_block_ys` 单调性保护：构造 Y 倒退的输入（可直接测累计最大值逻辑，或用包含锚点的文档），断言输出非降。
+- 懒刷新：`MarkdownViewer` 加载含锚点的小文档并 `show()`，改变 `text_browser` 宽度并处理事件后，`_anchor_dirty` 为 True；调用 `_ensure_anchor_map()` 后为 False，且 `_anchor_lines` 不变、`_anchor_ys` 长度不变且非降。不断言"加载后脏标记为 False"，因为加载后会多触发一次 `documentSizeChanged`（见第 2 节）。
+- 清空映射：加载文档后对不存在的路径调用 `open_help_doc`，断言 `_anchor_lines / _anchor_blocks / _anchor_ys` 均为空。
 
 ### 真实平台探针（实现后执行，不入库）
 
 用 `失去的二十年.md` 打开编辑面板：
 
-- 懒重建后的 `_anchor_ys` 与新鲜构建的结果一致。
+- 懒刷新后的 `_anchor_ys` 与完整重建结果一致。
+- 懒刷新耗时远小于完整构建（目标 < 10ms，对比完整构建 120ms）。
 - 编辑器滚动到某个锚点块的 `firstLineNumber` 后，预览值约等于该锚点 Y；反向同理。
+- 任一侧滚到底时，另一侧也在底部。
 
 ### 手动冒烟
 
