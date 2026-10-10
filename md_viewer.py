@@ -1298,6 +1298,34 @@ class MarkdownViewer(QMainWindow):
         return round(ratio * dst.maximum())
 
     @staticmethod
+    def _interp(xs, ys, x):
+        """分段线性插值：xs 非降序，返回 x 在 (xs, ys) 折线上对应的 y。
+
+        x < xs[0] 返回 ys[0]；x >= xs[-1] 返回 ys[-1]；
+        x 恰好等于一组重复节点的值时，返回最后一个等值节点的 y。
+        bisect_right 会越过所有等值节点，零宽区间永远不会被选中，因此不会除零。
+        """
+        if x < xs[0]:
+            return ys[0]
+        if x >= xs[-1]:
+            return ys[-1]
+        i = bisect.bisect_right(xs, x)
+        x0, x1 = xs[i - 1], xs[i]
+        y0, y1 = ys[i - 1], ys[i]
+        return y0 + (y1 - y0) * (x - x0) / (x1 - x0)
+
+    @staticmethod
+    def _map_scroll(value, src_max, dst_max, xs, ys):
+        """把源滚动条值映射为目标滚动条值。
+
+        src_max > 0 且 value >= src_max 时返回 dst_max（底部对齐）；
+        否则返回 round(_interp(xs, ys, value))。
+        """
+        if src_max > 0 and value >= src_max:
+            return dst_max
+        return round(MarkdownViewer._interp(xs, ys, value))
+
+    @staticmethod
     def _nearest_anchor_index(arr, target):
         """在非降序数组 arr 中返回最后一个 <= target 的索引；target 小于首元素返回 0。"""
         idx = bisect.bisect_right(arr, target) - 1
