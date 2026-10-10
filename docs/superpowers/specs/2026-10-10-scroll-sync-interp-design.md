@@ -94,7 +94,7 @@
 @staticmethod
 def _interp(xs, ys, x):
     """分段线性插值：xs 非降序，返回 x 在 (xs, ys) 折线上对应的 y。
-    x <= xs[0] 返回 ys[0]；x >= xs[-1] 返回 ys[-1]；
+    x < xs[0] 返回 ys[0]；x >= xs[-1] 返回 ys[-1]；
     x 恰好等于一组重复节点（相邻 xs 相等）的值时，返回最后一个等值节点的 y。"""
 ```
 
@@ -164,7 +164,7 @@ def _map_scroll(value, src_max, dst_max, xs, ys):
 - `reload_file`：改用两级构建，保存 `_anchor_blocks`，清除脏标记；读文件失败分支调用 `_clear_anchor_map`
 - `open_help_doc`：帮助文档缺失分支调用 `_clear_anchor_map`
 - `_build_anchor_map`：拆分为 `_collect_anchor_blocks` + `_anchor_block_ys`，自身保留为组合
-- 新增 `_interp`、`_map_scroll`、`_ensure_anchor_map`、`_edit_anchor_points`、`_clear_anchor_map`
+- 新增 `_interp`、`_map_scroll`、`_ensure_anchor_map`、`_edit_anchor_points`、`_clear_anchor_map`、`_mark_anchor_dirty`（`documentSizeChanged` 回调，只置脏标记）
 - 删除 `_nearest_anchor_index`
 
 ## 测试
