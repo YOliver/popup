@@ -1332,13 +1332,13 @@ class MarkdownViewer(QMainWindow):
         return idx if idx >= 0 else 0
 
     @staticmethod
-    def _build_anchor_map(doc):
-        """遍历 QTextDocument 找出所有 <a id="popup-anchor-N"> 锚点，返回 (行号列表, Y 列表)。
+    def _collect_anchor_blocks(doc):
+        """遍历 QTextDocument 找出所有 <a id="popup-anchor-N"> 锚点，返回 (行号列表, 所在块列表)。
 
         锚点属性附着到紧随其后的字符，通过 fragment 的 anchorNames 检测；
-        block 的文档 Y 用 documentLayout().blockBoundingRect(block).y() 取得。
+        每个块只取第一个锚点。结果只取决于文档结构，与排版宽度无关。
         """
-        lines, ys = [], []
+        lines, blocks = [], []
         blk = doc.begin()
         while blk.isValid():
             found = None
@@ -1355,9 +1355,26 @@ class MarkdownViewer(QMainWindow):
                 it += 1
             if found is not None:
                 lines.append(found)
-                ys.append(doc.documentLayout().blockBoundingRect(blk).y())
+                blocks.append(blk)
             blk = blk.next()
-        return lines, ys
+        return lines, blocks
+
+    @staticmethod
+    def _anchor_block_ys(doc, blocks):
+        """返回各块在文档中的 Y，并做累计最大值处理保证非降序（防浮动元素等导致 Y 倒退）。"""
+        layout = doc.documentLayout()
+        ys = []
+        top = float("-inf")
+        for blk in blocks:
+            top = max(top, layout.blockBoundingRect(blk).y())
+            ys.append(top)
+        return ys
+
+    @staticmethod
+    def _build_anchor_map(doc):
+        """完整构建锚点映射，返回 (行号列表, Y 列表)。"""
+        lines, blocks = MarkdownViewer._collect_anchor_blocks(doc)
+        return lines, MarkdownViewer._anchor_block_ys(doc, blocks)
 
     @staticmethod
     def _detect_newline(content):

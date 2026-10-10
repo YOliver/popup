@@ -41,5 +41,37 @@ class TestBuildAnchorMap(unittest.TestCase):
         self.assertEqual(ys, [])
 
 
+def _long_doc():
+    para = '很长的段落文字' * 40
+    return _doc(''.join(
+        '<p><a id="popup-anchor-%d"></a>%s</p>' % (i * 3, para) for i in range(3)))
+
+
+class TestSplitAnchorMap(unittest.TestCase):
+    def test_collect_matches_build(self):
+        doc = _long_doc()
+        lines, blocks = MarkdownViewer._collect_anchor_blocks(doc)
+        self.assertEqual(lines, MarkdownViewer._build_anchor_map(doc)[0])
+        self.assertEqual(lines, [0, 3, 6])
+        self.assertEqual(len(blocks), len(lines))
+
+    def test_block_ys_monotonic_when_blocks_reversed(self):
+        doc = _long_doc()
+        _, blocks = MarkdownViewer._collect_anchor_blocks(doc)
+        ys = MarkdownViewer._anchor_block_ys(doc, list(reversed(blocks)))
+        self.assertEqual(ys, sorted(ys))
+        self.assertEqual(len(ys), 3)
+
+    def test_recompute_ys_after_width_change_matches_full_build(self):
+        doc = _long_doc()
+        doc.setTextWidth(800)
+        _, blocks = MarkdownViewer._collect_anchor_blocks(doc)
+        wide = MarkdownViewer._anchor_block_ys(doc, blocks)
+        doc.setTextWidth(200)
+        narrow = MarkdownViewer._anchor_block_ys(doc, blocks)
+        self.assertEqual(narrow, MarkdownViewer._build_anchor_map(doc)[1])
+        self.assertNotEqual(narrow, wide)  # 确认宽度变化确实改变了 Y，测试有效
+
+
 if __name__ == "__main__":
     unittest.main()
