@@ -133,7 +133,9 @@ class MarkdownViewer(QMainWindow):
         self._edit_load_ok = True  # 文件内容是否成功加载；读失败时禁止保存
         # 锚点映射表（源行号 ↔ 预览 Y），滚动同步查表用
         self._anchor_lines = []
+        self._anchor_blocks = []   # 锚点所在 QTextBlock，宽度变化时据此只重算 Y
         self._anchor_ys = []
+        self._anchor_dirty = False  # 预览排版变化后置位，下次同步前懒刷新 Y
 
         # 文本搜索状态
         self._count_timer = QTimer(self)
@@ -368,12 +370,16 @@ class MarkdownViewer(QMainWindow):
 
         self.edit_panel.hide()
 
-        # 双向滚动同步（比例粗同步）
+        # 双向滚动同步（锚点插值）
         self.text_browser.verticalScrollBar().valueChanged.connect(
             self._sync_preview_to_edit
         )
         self.edit_text.verticalScrollBar().valueChanged.connect(
             self._sync_edit_to_preview
+        )
+        # 预览排版变化（宽度、图片加载）后标记映射过期；setHtml 不替换 layout，连接一次即可
+        self.text_browser.document().documentLayout().documentSizeChanged.connect(
+            self._mark_anchor_dirty
         )
 
         # 默认隐藏目录
@@ -837,6 +843,24 @@ class MarkdownViewer(QMainWindow):
             return
         self.reload_file()
 
+    def _mark_anchor_dirty(self, *_):
+        """documentSizeChanged 回调：只置脏标记，拖分隔条时可能每帧触发，不做计算"""
+        self._anchor_dirty = True
+
+    def _ensure_anchor_map(self):
+        """映射过期时用缓存的块只重算 Y（不重新遍历片段）"""
+        if self._anchor_dirty:
+            self._anchor_ys = self._anchor_block_ys(
+                self.text_browser.document(), self._anchor_blocks)
+            self._anchor_dirty = False
+
+    def _clear_anchor_map(self):
+        """预览被替换为非文件内容后清空映射，同步回退到比例方式"""
+        self._anchor_lines = []
+        self._anchor_blocks = []
+        self._anchor_ys = []
+        self._anchor_dirty = False
+
     def _sync_preview_to_edit(self, value):
         """预览滚动 → 编辑器滚动条按锚点映射跟随（仅滚动视图，不动光标）。
 
@@ -920,6 +944,7 @@ class MarkdownViewer(QMainWindow):
         except Exception as e:
             logger.error("Failed to read file: %s", e)
             self.text_browser.setHtml(self.wrap_html(f"<p style='color:red;'>读取文件失败: {e}</p>"))
+            self._clear_anchor_map()
             return
 
         _t_md = time.perf_counter()
@@ -963,9 +988,10 @@ class MarkdownViewer(QMainWindow):
         finally:
             self._syncing = False
 
-        self._anchor_lines, self._anchor_ys = self._build_anchor_map(
-            self.text_browser.document()
-        )
+        doc = self.text_browser.document()
+        self._anchor_lines, self._anchor_blocks = self._collect_anchor_blocks(doc)
+        self._anchor_ys = self._anchor_block_ys(doc, self._anchor_blocks)
+        self._anchor_dirty = False
 
         # 若搜索条开着，刷新搜索状态
         if self.search_bar.isVisible() and self.search_input.text():
@@ -1449,6 +1475,7 @@ class MarkdownViewer(QMainWindow):
             self.text_browser.setHtml(self.wrap_html(
                 f"<p style='color:red;'>帮助文档未找到: {os.path.basename(path)}</p>"
             ))
+            self._clear_anchor_map()
 
     @staticmethod
     def wrap_html(body):
