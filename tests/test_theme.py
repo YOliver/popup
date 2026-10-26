@@ -1,9 +1,11 @@
 import os
+import sys
 import unittest
 from unittest import mock
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
@@ -66,6 +68,43 @@ class TestPinIconTheme(unittest.TestCase):
                     count += 1
         self.assertGreater(count, 0)
         self.assertGreater(total / count, 128)
+
+
+class TestApplyTheme(unittest.TestCase):
+    def setUp(self):
+        # 隔离构造副作用：不装全局键盘钩子、不把 pytest 参数当文件打开、不读写用户 QSettings
+        patcher_hotkey = mock.patch("md_viewer.GlobalHotkey")
+        patcher_hotkey.start()
+        self.addCleanup(patcher_hotkey.stop)
+        patcher_argv = mock.patch.object(sys, "argv", ["md_viewer.py"])
+        patcher_argv.start()
+        self.addCleanup(patcher_argv.stop)
+        patcher_settings = mock.patch(
+            "md_viewer.QSettings",
+            return_value=mock.MagicMock(value=mock.MagicMock(return_value=False)),
+        )
+        patcher_settings.start()
+        self.addCleanup(patcher_settings.stop)
+
+        self.viewer = MarkdownViewer()
+        self.addCleanup(self.viewer.close)
+        self.style_hints = mock.MagicMock()
+        patcher_hints = mock.patch.object(
+            QApplication.instance(), "styleHints", return_value=self.style_hints
+        )
+        patcher_hints.start()
+        self.addCleanup(patcher_hints.stop)
+        self.orig_style = QApplication.instance().style().name()
+
+    def test_apply_theme_toggles_dark_and_light(self):
+        self.viewer.apply_theme(True)
+        self.style_hints.setColorScheme.assert_called_with(Qt.ColorScheme.Dark)
+        self.assertIn(DARK["toc_bg"], self.viewer.toc_tree.styleSheet())
+        self.assertEqual(QApplication.instance().style().name(), self.orig_style)
+
+        self.viewer.apply_theme(False)
+        self.style_hints.setColorScheme.assert_called_with(Qt.ColorScheme.Light)
+        self.assertIn(LIGHT["toc_bg"], self.viewer.toc_tree.styleSheet())
 
 
 if __name__ == "__main__":
