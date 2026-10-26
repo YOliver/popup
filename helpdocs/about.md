@@ -16,8 +16,8 @@
 
 | 环境/依赖 | 版本要求 | 说明 |
 |-----------|---------|------|
-| Python | >= 3.8 | 直接运行源码时需要；使用 exe 则无需 |
-| PySide6 | >= 6.5 | Qt 框架 Python 绑定（GUI 库） |
+| Python | >= 3.9 | 直接运行源码时需要；使用 exe 则无需 |
+| PySide6 | >= 6.8 | Qt 框架 Python 绑定（GUI 库） |
 | markdown | >= 3.4 | Markdown 解析库 |
 
 > 注：使用打包后的 `Popup.exe` 或安装包运行时，无需额外安装 Python 及依赖。

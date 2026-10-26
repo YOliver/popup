@@ -297,6 +297,7 @@ class MarkdownViewer(QMainWindow):
         self._count_timer.setSingleShot(True)
         self._count_timer.setInterval(150)
         self._count_timer.timeout.connect(lambda: self.update_match_count())
+        self._search_error = False  # 搜索"无结果"状态，用于 error 边框
 
         # 置顶状态（首次默认置顶，与既有行为一致）
         self._always_on_top = QSettings().value("window/always_on_top", True, type=bool)
@@ -333,13 +334,11 @@ class MarkdownViewer(QMainWindow):
         self.toc_tree.setHeaderLabel("目录")
         self.toc_tree.setIndentation(8)  # 减小层级缩进
         self.toc_tree.setRootIsDecorated(False)  # 不显示展开/折叠三角
-        self.toc_tree.setStyleSheet(_toc_qss(self._colors))
         self.toc_tree.itemClicked.connect(self.on_toc_clicked)
 
         # QTextBrowser 作为渲染控件（无需 Chromium，即时创建）
         self.text_browser = QTextBrowser()
         self.text_browser.setOpenExternalLinks(True)
-        self.text_browser.setStyleSheet(_browser_qss(self._colors))
 
         # 目录折叠/展开按钮 - 贴在正文左边缘
         self.toc_toggle_btn = QToolButton()
@@ -347,12 +346,10 @@ class MarkdownViewer(QMainWindow):
         self.toc_toggle_btn.setToolTip("显示目录 (Ctrl+B)")
         self.toc_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toc_toggle_btn.setFixedWidth(16)
-        self.toc_toggle_btn.setStyleSheet(_toc_toggle_qss(self._colors))
         self.toc_toggle_btn.clicked.connect(self.toggle_toc)
 
         # 文本搜索条（默认隐藏，Ctrl+F 弹出）
         self.search_bar = QWidget()
-        self.search_bar.setStyleSheet(_search_bar_qss(self._colors))
         self.search_bar.setObjectName("search_bar")
         search_layout = QHBoxLayout(self.search_bar)
         search_layout.setContentsMargins(8, 4, 8, 4)
@@ -360,11 +357,9 @@ class MarkdownViewer(QMainWindow):
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("查找...")
-        self.search_input.setStyleSheet(_search_input_qss(self._colors))
         self.search_input.installEventFilter(self)
 
         self.match_count_label = QLabel("")
-        self.match_count_label.setStyleSheet(_muted_label_qss(self._colors))
 
         self.prev_btn = QToolButton()
         self.prev_btn.setText("▲")
@@ -381,13 +376,11 @@ class MarkdownViewer(QMainWindow):
         self.case_btn.setToolTip("区分大小写")
         self.case_btn.setCheckable(True)
         self.case_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.case_btn.setStyleSheet(_option_btn_qss(self._colors))
         self.word_btn = QToolButton()
         self.word_btn.setText("全词")
         self.word_btn.setToolTip("全词匹配")
         self.word_btn.setCheckable(True)
         self.word_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.word_btn.setStyleSheet(_option_btn_qss(self._colors))
 
         self.close_btn = QToolButton()
         self.close_btn.setText("✕")
@@ -562,13 +555,11 @@ class MarkdownViewer(QMainWindow):
 
         # 图钉按钮：切换窗口置顶（放在菜单栏最右侧）
         self.pin_btn = QToolButton(self)
-        self.pin_btn.setIcon(_build_pin_icon())
         self.pin_btn.setCheckable(True)
         # 必须在 toggled.connect 之前 setChecked，否则构造期会误触发 toggle_always_on_top 去调用尚未可用的 winId()
         self.pin_btn.setChecked(self._always_on_top)
         self.pin_btn.setToolTip("取消置顶" if self._always_on_top else "窗口置顶")
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.pin_btn.setStyleSheet(_pin_btn_qss(self._colors))
         self.pin_btn.toggled.connect(self.toggle_always_on_top)
         menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
 
@@ -628,6 +619,7 @@ class MarkdownViewer(QMainWindow):
 
     def _clear_search_state(self):
         """清空搜索高亮和计数状态"""
+        self._search_error = False
         self.match_count_label.setText("")
         cursor = self.text_browser.textCursor()
         if cursor.hasSelection():
@@ -647,9 +639,11 @@ class MarkdownViewer(QMainWindow):
         self.text_browser.setTextCursor(cursor)
         found = self.text_browser.find(text, flags)
         if not found:
+            self._search_error = True
             self.match_count_label.setText("无结果")
             self.search_input.setStyleSheet(_search_input_qss(self._colors, error=True))
         else:
+            self._search_error = False
             self.search_input.setStyleSheet(_search_input_qss(self._colors))
 
     def _schedule_count_update(self):
@@ -680,9 +674,11 @@ class MarkdownViewer(QMainWindow):
                 current = total
             pos = cursor.position()
         if total == 0:
+            self._search_error = True
             self.match_count_label.setText("无结果")
             self.search_input.setStyleSheet(_search_input_qss(self._colors, error=True))
         else:
+            self._search_error = False
             if current == 0:
                 current = 1  # 可能当前光标恰好在第一个匹配前
             self.match_count_label.setText(f"第 {current} / 共 {total} 个")
@@ -815,16 +811,21 @@ class MarkdownViewer(QMainWindow):
 
     def apply_theme(self, dark):
         """按深/浅色重设应用配色方案、各控件样式并重渲染预览。"""
+        self._dark_mode = dark
         self._colors = DARK if dark else LIGHT
-        QApplication.instance().styleHints().setColorScheme(
-            Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light
-        )
+        style_hints = QApplication.instance().styleHints()
+        if hasattr(style_hints, "setColorScheme"):
+            style_hints.setColorScheme(
+                Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light
+            )
+        else:
+            logger.warning("当前 PySide6 版本不支持 setColorScheme，仅应用 QSS 主题")
         self.toc_tree.setStyleSheet(_toc_qss(self._colors))
         self.text_browser.setStyleSheet(_browser_qss(self._colors))
         self.toc_toggle_btn.setStyleSheet(_toc_toggle_qss(self._colors))
         self.search_bar.setStyleSheet(_search_bar_qss(self._colors))
         self.search_input.setStyleSheet(
-            _search_input_qss(self._colors, error=self.match_count_label.text() == "无结果")
+            _search_input_qss(self._colors, error=self._search_error)
         )
         self.match_count_label.setStyleSheet(_muted_label_qss(self._colors))
         self.case_btn.setStyleSheet(_option_btn_qss(self._colors))
@@ -832,13 +833,15 @@ class MarkdownViewer(QMainWindow):
         self.pin_btn.setStyleSheet(_pin_btn_qss(self._colors))
         if self.file_path:
             self.reload_file()
+            if self.search_input.text():
+                self._do_find()
         else:
             self._show_welcome()
+        self.dark_action.setChecked(dark)
         self.pin_btn.setIcon(_build_pin_icon(self._colors["pin_on"]))
 
     def toggle_dark_mode(self, checked):
         """切换深色模式并持久化。"""
-        self._dark_mode = checked
         QSettings().setValue("appearance/dark_mode", checked)
         self.apply_theme(checked)
 

@@ -76,8 +76,8 @@ release.bat
 
 ## 依赖
 
-- Python 3.8+
-- PySide6
+- Python 3.9+
+- PySide6 >= 6.8
 - markdown
 
 ## 文档

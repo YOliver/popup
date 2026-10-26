@@ -9,6 +9,8 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+import md_viewer
+
 from md_viewer import (
     DARK,
     LIGHT,
@@ -105,6 +107,23 @@ class TestApplyTheme(unittest.TestCase):
         self.viewer.apply_theme(False)
         self.style_hints.setColorScheme.assert_called_with(Qt.ColorScheme.Light)
         self.assertIn(LIGHT["toc_bg"], self.viewer.toc_tree.styleSheet())
+
+    def test_toggle_dark_mode_persists(self):
+        self.viewer.toggle_dark_mode(True)
+        md_viewer.QSettings.return_value.setValue.assert_called_with(
+            "appearance/dark_mode", True
+        )
+
+    def test_dark_mode_restored_from_settings(self):
+        def _value(key, default, type=None):
+            return True if key == "appearance/dark_mode" else default
+        md_viewer.QSettings.return_value.value.side_effect = _value
+        viewer = md_viewer.MarkdownViewer()
+        try:
+            self.assertTrue(viewer._dark_mode)
+            self.assertTrue(viewer.dark_action.isChecked())
+        finally:
+            viewer.close()
 
 
 if __name__ == "__main__":
