@@ -74,6 +74,160 @@ PIN_SVG_OFF = (
 )
 
 
+# ---- 主题色表 ----
+LIGHT = {
+    "bg": "#fff",
+    "fg": "#333",
+    "heading": "#1a1a1a",
+    "toc_bg": "#f7f7f7",
+    "search_bg": "#f5f5f5",
+    "toggle_bg": "#f0f0f0",
+    "hover": "#e8e8e8",
+    "pressed": "#e0e0e0",
+    "selected": "#d0e4ff",
+    "strong_fg": "#000",
+    "border": "#ddd",
+    "input_border": "#ccc",
+    "muted": "#666",
+    "code_bg": "#f4f4f4",
+    "quote_bg": "#e8e8e8",
+    "link": "#0366d6",
+    "error": "red",
+    "error_border": "#e00",
+    "pin_on": "#2c2c2c",
+}
+
+DARK = {
+    "bg": "#1e1e1e",
+    "fg": "#d4d4d4",
+    "heading": "#e8e8e8",
+    "toc_bg": "#252526",
+    "search_bg": "#2d2d2d",
+    "toggle_bg": "#2d2d2d",
+    "hover": "#3a3a3a",
+    "pressed": "#45454a",
+    "selected": "#264f78",
+    "strong_fg": "#fff",
+    "border": "#3c3c3c",
+    "input_border": "#555",
+    "muted": "#9a9a9a",
+    "code_bg": "#2a2a2a",
+    "quote_bg": "#2f2f2f",
+    "link": "#4ea1ff",
+    "error": "#f14c4c",
+    "error_border": "#f14c4c",
+    "pin_on": "#e0e0e0",
+}
+
+
+# ---- QSS 生成函数 ----
+def _toc_qss(c):
+    return f"""
+        QTreeWidget {{
+            background: {c['toc_bg']};
+            border: none;
+            font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
+            font-size: 12px;
+            padding: 4px 2px;
+        }}
+        QTreeWidget::item {{
+            padding: 2px 2px;
+            border: none;
+            color: {c['fg']};
+        }}
+        QTreeWidget::item:hover {{
+            background: {c['hover']};
+            color: {c['fg']};
+        }}
+        QTreeWidget::item:selected {{
+            background: {c['selected']};
+            color: {c['strong_fg']};
+        }}
+        QTreeWidget::item:selected:active {{
+            background: {c['selected']};
+            color: {c['strong_fg']};
+        }}
+        QTreeWidget::item:selected:!active {{
+            background: {c['selected']};
+            color: {c['strong_fg']};
+        }}
+    """
+
+
+def _browser_qss(c):
+    return f"""
+        QTextBrowser {{
+            background: {c['bg']};
+            border: none;
+            font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            font-size: 14px;
+            padding: 20px;
+        }}
+    """
+
+
+def _toc_toggle_qss(c):
+    return f"""
+        QToolButton {{
+            background: {c['toggle_bg']};
+            border: none;
+            border-right: 1px solid {c['border']};
+            color: {c['muted']};
+            font-size: 10px;
+        }}
+        QToolButton:hover {{
+            background: {c['pressed']};
+            color: {c['strong_fg']};
+        }}
+    """
+
+
+def _search_bar_qss(c):
+    return f"""
+        QWidget#search_bar {{
+            background: {c['search_bg']};
+            border-bottom: 1px solid {c['border']};
+        }}
+    """
+
+
+def _search_input_qss(c, error=False):
+    border_color = c["error_border"] if error else c["input_border"]
+    return f"""
+        QLineEdit {{
+            border: 1px solid {border_color};
+            border-radius: 3px;
+            padding: 2px 8px;
+            background: {c['bg']};
+            min-width: 200px;
+        }}
+    """
+
+
+def _muted_label_qss(c):
+    return f"color: {c['muted']}; font-size: 12px;"
+
+
+def _option_btn_qss(c):
+    return f"QToolButton:checked {{ color: {c['strong_fg']}; font-weight: bold; }}"
+
+
+def _pin_btn_qss(c):
+    return f"""
+        QToolButton {{
+            border: none;
+            background: transparent;
+            padding: 2px 6px;
+        }}
+        QToolButton:hover {{
+            background: {c['hover']};
+        }}
+        QToolButton:checked {{
+            background: {c['pressed']};
+        }}
+    """
+
+
 def _svg_to_pixmap(svg: str, size: int = 16) -> QPixmap:
     """把内嵌 SVG 字符串渲染成 size×size 的透明底 QPixmap。"""
     renderer = QSvgRenderer(QByteArray(svg.encode("utf-8")))
@@ -86,11 +240,12 @@ def _svg_to_pixmap(svg: str, size: int = 16) -> QPixmap:
     return pixmap
 
 
-def _build_pin_icon() -> QIcon:
-    """构建图钉 QIcon：Off=浅色（松开）、On=深色（钉住）。"""
+def _build_pin_icon(on_color="#2c2c2c") -> QIcon:
+    """构建图钉 QIcon：Off=浅色（松开）、On=深色（钉住，颜色可换）。"""
+    on_svg = PIN_SVG_ON.replace("#2c2c2c", on_color)
     icon = QIcon()
     icon.addPixmap(_svg_to_pixmap(PIN_SVG_OFF), QIcon.Mode.Normal, QIcon.State.Off)
-    icon.addPixmap(_svg_to_pixmap(PIN_SVG_ON), QIcon.Mode.Normal, QIcon.State.On)
+    icon.addPixmap(_svg_to_pixmap(on_svg), QIcon.Mode.Normal, QIcon.State.On)
     return icon
 
 
@@ -1515,8 +1670,10 @@ class MarkdownViewer(QMainWindow):
             self._clear_anchor_map()
 
     @staticmethod
-    def wrap_html(body):
-        """将 Markdown 渲染结果包装为完整 HTML 页面"""
+    def wrap_html(body, c=None):
+        """将 Markdown 渲染结果包装为完整 HTML 页面；c 为颜色字典，默认 LIGHT。"""
+        if c is None:
+            c = LIGHT
         return f"""<!DOCTYPE html>
 <html>
 <head>
@@ -1524,22 +1681,22 @@ class MarkdownViewer(QMainWindow):
 <style>
 body {{
     line-height: 1.6;
-    color: #333;
-    background: #fff;
+    color: {c['fg']};
+    background: {c['bg']};
 }}
 h1, h2, h3, h4, h5, h6 {{
     margin-top: 1.2em;
     margin-bottom: 0.6em;
-    color: #1a1a1a;
+    color: {c['heading']};
 }}
 code {{
-    background: #f4f4f4;
+    background: {c['code_bg']};
     padding: 2px 6px;
     font-family: Consolas, "Courier New", monospace;
     font-size: 0.9em;
 }}
 pre {{
-    background: #f4f4f4;
+    background: {c['code_bg']};
     padding: 12px;
     white-space: pre-wrap;
     line-height: 1.0;
@@ -1551,12 +1708,12 @@ table.md-quote {{
 }}
 td.md-quote-cell {{
     border: none;
-    border-left: 4px solid #ddd;
+    border-left: 4px solid {c['border']};
     padding: 8px 16px;
-    color: #666;
+    color: {c['muted']};
 }}
 td.md-quote-cell p {{
-    background-color: #e8e8e8;
+    background-color: {c['quote_bg']};
     margin: 0;
 }}
 table {{
@@ -1565,15 +1722,15 @@ table {{
     margin: 1em 0;
 }}
 th, td {{
-    border: 1px solid #ddd;
+    border: 1px solid {c['border']};
     padding: 8px 12px;
     text-align: left;
 }}
 th {{
-    background: #f4f4f4;
+    background: {c['code_bg']};
 }}
 a {{
-    color: #0366d6;
+    color: {c['link']};
 }}
 </style>
 </head>
