@@ -301,6 +301,10 @@ class MarkdownViewer(QMainWindow):
         # 置顶状态（首次默认置顶，与既有行为一致）
         self._always_on_top = QSettings().value("window/always_on_top", True, type=bool)
 
+        # 深色模式状态（手动切换，持久化）
+        self._dark_mode = QSettings().value("appearance/dark_mode", False, type=bool)
+        self._colors = LIGHT
+
         self.init_ui()
         self.init_tray()
 
@@ -329,50 +333,13 @@ class MarkdownViewer(QMainWindow):
         self.toc_tree.setHeaderLabel("目录")
         self.toc_tree.setIndentation(8)  # 减小层级缩进
         self.toc_tree.setRootIsDecorated(False)  # 不显示展开/折叠三角
-        self.toc_tree.setStyleSheet("""
-            QTreeWidget {
-                background: #f7f7f7;
-                border: none;
-                font-family: -apple-system, "Segoe UI", Roboto, Arial, sans-serif;
-                font-size: 12px;
-                padding: 4px 2px;
-            }
-            QTreeWidget::item {
-                padding: 2px 2px;
-                border: none;
-                color: #333;
-            }
-            QTreeWidget::item:hover {
-                background: #e8e8e8;
-                color: #333;
-            }
-            QTreeWidget::item:selected {
-                background: #d0e4ff;
-                color: #000;
-            }
-            QTreeWidget::item:selected:active {
-                background: #d0e4ff;
-                color: #000;
-            }
-            QTreeWidget::item:selected:!active {
-                background: #d0e4ff;
-                color: #000;
-            }
-        """)
+        self.toc_tree.setStyleSheet(_toc_qss(self._colors))
         self.toc_tree.itemClicked.connect(self.on_toc_clicked)
 
         # QTextBrowser 作为渲染控件（无需 Chromium，即时创建）
         self.text_browser = QTextBrowser()
         self.text_browser.setOpenExternalLinks(True)
-        self.text_browser.setStyleSheet("""
-            QTextBrowser {
-                background: #fff;
-                border: none;
-                font-family: -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-                font-size: 14px;
-                padding: 20px;
-            }
-        """)
+        self.text_browser.setStyleSheet(_browser_qss(self._colors))
 
         # 目录折叠/展开按钮 - 贴在正文左边缘
         self.toc_toggle_btn = QToolButton()
@@ -380,29 +347,12 @@ class MarkdownViewer(QMainWindow):
         self.toc_toggle_btn.setToolTip("显示目录 (Ctrl+B)")
         self.toc_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.toc_toggle_btn.setFixedWidth(16)
-        self.toc_toggle_btn.setStyleSheet("""
-            QToolButton {
-                background: #f0f0f0;
-                border: none;
-                border-right: 1px solid #ddd;
-                color: #666;
-                font-size: 10px;
-            }
-            QToolButton:hover {
-                background: #e0e0e0;
-                color: #000;
-            }
-        """)
+        self.toc_toggle_btn.setStyleSheet(_toc_toggle_qss(self._colors))
         self.toc_toggle_btn.clicked.connect(self.toggle_toc)
 
         # 文本搜索条（默认隐藏，Ctrl+F 弹出）
         self.search_bar = QWidget()
-        self.search_bar.setStyleSheet("""
-            QWidget#search_bar {
-                background: #f5f5f5;
-                border-bottom: 1px solid #ddd;
-            }
-        """)
+        self.search_bar.setStyleSheet(_search_bar_qss(self._colors))
         self.search_bar.setObjectName("search_bar")
         search_layout = QHBoxLayout(self.search_bar)
         search_layout.setContentsMargins(8, 4, 8, 4)
@@ -410,19 +360,11 @@ class MarkdownViewer(QMainWindow):
 
         self.search_input = QLineEdit()
         self.search_input.setPlaceholderText("查找...")
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                padding: 2px 8px;
-                background: #fff;
-                min-width: 200px;
-            }
-        """)
+        self.search_input.setStyleSheet(_search_input_qss(self._colors))
         self.search_input.installEventFilter(self)
 
         self.match_count_label = QLabel("")
-        self.match_count_label.setStyleSheet("color: #666; font-size: 12px;")
+        self.match_count_label.setStyleSheet(_muted_label_qss(self._colors))
 
         self.prev_btn = QToolButton()
         self.prev_btn.setText("▲")
@@ -439,13 +381,13 @@ class MarkdownViewer(QMainWindow):
         self.case_btn.setToolTip("区分大小写")
         self.case_btn.setCheckable(True)
         self.case_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.case_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
+        self.case_btn.setStyleSheet(_option_btn_qss(self._colors))
         self.word_btn = QToolButton()
         self.word_btn.setText("全词")
         self.word_btn.setToolTip("全词匹配")
         self.word_btn.setCheckable(True)
         self.word_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.word_btn.setStyleSheet("QToolButton:checked { color: #000; font-weight: bold; }")
+        self.word_btn.setStyleSheet(_option_btn_qss(self._colors))
 
         self.close_btn = QToolButton()
         self.close_btn.setText("✕")
@@ -591,6 +533,13 @@ class MarkdownViewer(QMainWindow):
             action.triggered.connect(lambda checked, width=w, height=h: self.set_window_size(width, height))
             window_menu.addAction(action)
 
+        window_menu.addSeparator()
+        self.dark_action = QAction("深色模式", self)
+        self.dark_action.setCheckable(True)
+        self.dark_action.setChecked(self._dark_mode)
+        self.dark_action.triggered.connect(self.toggle_dark_mode)
+        window_menu.addAction(self.dark_action)
+
         # 日志菜单
         log_menu = menubar.addMenu("日志")
         open_log_action = QAction("打开日志目录", self)
@@ -619,21 +568,12 @@ class MarkdownViewer(QMainWindow):
         self.pin_btn.setChecked(self._always_on_top)
         self.pin_btn.setToolTip("取消置顶" if self._always_on_top else "窗口置顶")
         self.pin_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.pin_btn.setStyleSheet("""
-            QToolButton {
-                border: none;
-                background: transparent;
-                padding: 2px 6px;
-            }
-            QToolButton:hover {
-                background: #e8e8e8;
-            }
-            QToolButton:checked {
-                background: #e0e0e0;
-            }
-        """)
+        self.pin_btn.setStyleSheet(_pin_btn_qss(self._colors))
         self.pin_btn.toggled.connect(self.toggle_always_on_top)
         menubar.setCornerWidget(self.pin_btn, Qt.Corner.TopRightCorner)
+
+        # 首次应用主题（此刻 file_path 为空，只渲染欢迎页；命令行文件随后加载覆盖）
+        self.apply_theme(self._dark_mode)
 
         logger.debug("init_ui: %.0fms (%.0fms total)",
                      (time.perf_counter() - _t) * 1000,
@@ -646,9 +586,14 @@ class MarkdownViewer(QMainWindow):
                 self.load_file(path)
 
         if not self.file_path:
-            self.text_browser.setHtml(self.wrap_html(
-                "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>"
-            ))
+            self._show_welcome()
+
+    def _show_welcome(self):
+        """显示未打开文件时的欢迎提示页。"""
+        self.text_browser.setHtml(self.wrap_html(
+            "<p>请通过 <b>文件 → 打开</b> 选择一个 Markdown 文件，或直接拖拽文件到窗口中</p>",
+            self._colors,
+        ))
 
     def eventFilter(self, obj, event):
         """拦截搜索框键盘事件"""
@@ -688,15 +633,7 @@ class MarkdownViewer(QMainWindow):
         if cursor.hasSelection():
             cursor.clearSelection()
             self.text_browser.setTextCursor(cursor)
-        self.search_input.setStyleSheet("""
-            QLineEdit {
-                border: 1px solid #ccc;
-                border-radius: 3px;
-                padding: 2px 8px;
-                background: #fff;
-                min-width: 200px;
-            }
-        """)
+        self.search_input.setStyleSheet(_search_input_qss(self._colors))
 
     def _do_find(self):
         """从文档开头开始查找，始终定位到第一个匹配"""
@@ -711,25 +648,9 @@ class MarkdownViewer(QMainWindow):
         found = self.text_browser.find(text, flags)
         if not found:
             self.match_count_label.setText("无结果")
-            self.search_input.setStyleSheet("""
-                QLineEdit {
-                    border: 1px solid #e00;
-                    border-radius: 3px;
-                    padding: 2px 8px;
-                    background: #fff;
-                    min-width: 200px;
-                }
-            """)
+            self.search_input.setStyleSheet(_search_input_qss(self._colors, error=True))
         else:
-            self.search_input.setStyleSheet("""
-                QLineEdit {
-                    border: 1px solid #ccc;
-                    border-radius: 3px;
-                    padding: 2px 8px;
-                    background: #fff;
-                    min-width: 200px;
-                }
-            """)
+            self.search_input.setStyleSheet(_search_input_qss(self._colors))
 
     def _schedule_count_update(self):
         """防抖延迟刷新匹配计数"""
@@ -760,28 +681,12 @@ class MarkdownViewer(QMainWindow):
             pos = cursor.position()
         if total == 0:
             self.match_count_label.setText("无结果")
-            self.search_input.setStyleSheet("""
-                QLineEdit {
-                    border: 1px solid #e00;
-                    border-radius: 3px;
-                    padding: 2px 8px;
-                    background: #fff;
-                    min-width: 200px;
-                }
-            """)
+            self.search_input.setStyleSheet(_search_input_qss(self._colors, error=True))
         else:
             if current == 0:
                 current = 1  # 可能当前光标恰好在第一个匹配前
             self.match_count_label.setText(f"第 {current} / 共 {total} 个")
-            self.search_input.setStyleSheet("""
-                QLineEdit {
-                    border: 1px solid #ccc;
-                    border-radius: 3px;
-                    padding: 2px 8px;
-                    background: #fff;
-                    min-width: 200px;
-                }
-            """)
+            self.search_input.setStyleSheet(_search_input_qss(self._colors))
 
     def find_next(self):
         """向后查找下一个匹配，到末尾回绕"""
@@ -907,6 +812,35 @@ class MarkdownViewer(QMainWindow):
         self.showNormal()
         self.raise_()
         self.activateWindow()
+
+    def apply_theme(self, dark):
+        """按深/浅色重设应用配色方案、各控件样式并重渲染预览。"""
+        self._colors = DARK if dark else LIGHT
+        QApplication.instance().styleHints().setColorScheme(
+            Qt.ColorScheme.Dark if dark else Qt.ColorScheme.Light
+        )
+        self.toc_tree.setStyleSheet(_toc_qss(self._colors))
+        self.text_browser.setStyleSheet(_browser_qss(self._colors))
+        self.toc_toggle_btn.setStyleSheet(_toc_toggle_qss(self._colors))
+        self.search_bar.setStyleSheet(_search_bar_qss(self._colors))
+        self.search_input.setStyleSheet(
+            _search_input_qss(self._colors, error=self.match_count_label.text() == "无结果")
+        )
+        self.match_count_label.setStyleSheet(_muted_label_qss(self._colors))
+        self.case_btn.setStyleSheet(_option_btn_qss(self._colors))
+        self.word_btn.setStyleSheet(_option_btn_qss(self._colors))
+        self.pin_btn.setStyleSheet(_pin_btn_qss(self._colors))
+        if self.file_path:
+            self.reload_file()
+        else:
+            self._show_welcome()
+        self.pin_btn.setIcon(_build_pin_icon(self._colors["pin_on"]))
+
+    def toggle_dark_mode(self, checked):
+        """切换深色模式并持久化。"""
+        self._dark_mode = checked
+        QSettings().setValue("appearance/dark_mode", checked)
+        self.apply_theme(checked)
 
     def showEvent(self, event):
         """首次显示及每次从托盘恢复时，幂等应用置顶状态。"""
@@ -1141,7 +1075,7 @@ class MarkdownViewer(QMainWindow):
                 content = f.read()
         except Exception as e:
             logger.error("Failed to read file: %s", e)
-            self.text_browser.setHtml(self.wrap_html(f"<p style='color:red;'>读取文件失败: {e}</p>"))
+            self.text_browser.setHtml(self.wrap_html(f"<p style='color:{self._colors['error']};'>读取文件失败: {e}</p>", self._colors))
             self._clear_anchor_map()
             return
 
@@ -1180,7 +1114,7 @@ class MarkdownViewer(QMainWindow):
         # 用 _syncing 包裹，避免刷新时误触发滚动同步导致闪动
         self._syncing = True
         try:
-            self.text_browser.setHtml(self.wrap_html(html_body))
+            self.text_browser.setHtml(self.wrap_html(html_body, self._colors))
             # 恢复滚动位置
             scrollbar.setValue(scroll_pos)
         finally:
@@ -1665,7 +1599,8 @@ class MarkdownViewer(QMainWindow):
         else:
             logger.warning("Help doc not found: %s", path)
             self.text_browser.setHtml(self.wrap_html(
-                f"<p style='color:red;'>帮助文档未找到: {os.path.basename(path)}</p>"
+                f"<p style='color:{self._colors['error']};'>帮助文档未找到: {os.path.basename(path)}</p>",
+                self._colors,
             ))
             self._clear_anchor_map()
 
